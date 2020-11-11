@@ -36,7 +36,7 @@ type HarborServerConfigurationSpec struct {
 
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*"
-	AccessSecretRef string `json:"access_secret_ref"`
+	AccessSecretRef string `json:"accessSecretRef"`
 
 	// The version of the Harbor server
 	// +kubebuilder:validation:Required
@@ -80,7 +80,13 @@ type Condition struct {
 }
 
 // +kubebuilder:object:root=true
-
+// +kubebuilder:storageversion
+// +k8s:openapi-gen=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:categories="goharbor",shortName="hsc"
+// +kubebuilder:printcolumn:name="Harbor Server",type=string,JSONPath=`.spec.serverURL`,description="The public URL to the Harbor server",priority=0
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`,description="The status of the Harbor server",priority=0
+// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.spec.version`,description="The version of the Harbor server",priority=5
 // HarborServerConfiguration is the Schema for the harborserverconfigurations API
 type HarborServerConfiguration struct {
 	metav1.TypeMeta   `json:",inline"`
