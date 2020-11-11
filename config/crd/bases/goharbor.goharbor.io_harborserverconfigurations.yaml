@@ -1,0 +1,104 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.2.4
+  creationTimestamp: null
+  name: harborserverconfigurations.goharbor.goharbor.io
+spec:
+  group: goharbor.goharbor.io
+  names:
+    kind: HarborServerConfiguration
+    listKind: HarborServerConfigurationList
+    plural: harborserverconfigurations
+    singular: harborserverconfiguration
+  scope: Namespaced
+  validation:
+    openAPIV3Schema:
+      description: HarborServerConfiguration is the Schema for the harborserverconfigurations
+        API
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          description: HarborServerConfigurationSpec defines the desired state of
+            HarborServerConfiguration
+          properties:
+            access_secret_ref:
+              pattern: '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*'
+              type: string
+            serverURL:
+              pattern: https?://.*
+              type: string
+            version:
+              description: The version of the Harbor server
+              pattern: (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
+              type: string
+          required:
+          - access_secret_ref
+          - serverURL
+          - version
+          type: object
+        status:
+          description: HarborServerConfigurationStatus defines the observed state
+            of HarborServerConfiguration
+          properties:
+            conditions:
+              description: Conditions list of extracted conditions from Resource Add
+                the health status of harbor components into condition list
+              items:
+                description: Condition defines the general format for conditions on
+                  Kubernetes resources. In practice, each kubernetes resource defines
+                  their own format for conditions, but most (maybe all) follows this
+                  structure.
+                properties:
+                  message:
+                    description: Message Human readable reason string
+                    type: string
+                  reason:
+                    description: Reason one work CamelCase reason
+                    type: string
+                  status:
+                    description: Status String that describes the condition status
+                    type: string
+                  type:
+                    description: Type condition type
+                    type: string
+                required:
+                - status
+                - type
+                type: object
+              type: array
+            status:
+              description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
+                of cluster Important: Run "make" to regenerate code after modifying
+                this file Indicate if the server is healthy'
+              type: string
+          required:
+          - conditions
+          - status
+          type: object
+      type: object
+  version: v1alpha1
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

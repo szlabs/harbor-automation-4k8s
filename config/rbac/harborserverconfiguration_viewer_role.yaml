@@ -1,0 +1,20 @@
+# permissions for end users to view harborserverconfigurations.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: harborserverconfiguration-viewer-role
+rules:
+- apiGroups:
+  - goharbor.goharbor.io
+  resources:
+  - harborserverconfigurations
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - goharbor.goharbor.io
+  resources:
+  - harborserverconfigurations/status
+  verbs:
+  - get

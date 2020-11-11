@@ -1,0 +1,7 @@
+domain: goharbor.io
+repo: github.com/szlabs/harbor-automation-4k8s
+resources:
+- group: goharbor
+  kind: HarborServerConfiguration
+  version: v1alpha1
+version: "2"
