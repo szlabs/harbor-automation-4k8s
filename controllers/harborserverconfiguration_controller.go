@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -39,18 +40,20 @@ import (
 )
 
 const (
-	accessKey     = "accessKey"
-	accessSecret  = "accessSecret"
-	defaultCycle  = 5 * time.Minute
-	defaultStatus = "Unknown"
-	defaultComp   = "Harbor"
+	accessKey       = "accessKey"
+	accessSecret    = "accessSecret"
+	defaultCycle    = 5 * time.Minute
+	defaultStatus   = "Unknown"
+	unhealthyStatus = "UnHealthy"
+	defaultComp     = "Harbor"
 )
 
 // HarborServerConfigurationReconciler reconciles a HarborServerConfiguration object
 type HarborServerConfigurationReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log          logr.Logger
+	Scheme       *runtime.Scheme
+	RoundTripper http.RoundTripper
 }
 
 // +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=harborserverconfigurations,verbs=get;list;watch;create;update;patch;delete
@@ -145,27 +148,16 @@ type accessCred struct {
 }
 
 func (r *HarborServerConfigurationReconciler) getAccessCred(secret *corev1.Secret) (*accessCred, error) {
-	encodedAK, ok1 := secret.Data[accessKey]
-	encodedAS, ok2 := secret.Data[accessSecret]
+	decodedAK, ok1 := secret.Data[accessKey]
+	decodedAS, ok2 := secret.Data[accessSecret]
 	if !(ok1 && ok2) {
 		return nil, errors.New("invalid access secret")
 	}
 
-	cred := &accessCred{}
-
-	ak, err := base64Decode(encodedAK)
-	if err != nil {
-		return nil, err
-	}
-	cred.accessKey = ak
-
-	as, err := base64Decode(encodedAS)
-	if err != nil {
-		return nil, err
-	}
-	cred.accessSecret = as
-
-	return cred, nil
+	return &accessCred{
+		accessKey:    string(decodedAK),
+		accessSecret: string(decodedAS),
+	}, nil
 }
 
 func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, serverURL string, cred *accessCred) (goharborv1alpha1.HarborServerConfigurationStatus, error) {
@@ -182,7 +174,8 @@ func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, s
 	}
 
 	params := products.NewGetHealthParamsWithContext(ctx).
-		WithTimeout(30 * time.Second)
+		WithTimeout(30 * time.Second).
+		WithHTTPClient(&http.Client{Transport: r.RoundTripper})
 	basicAuth := httptransport.BasicAuth(cred.accessKey, cred.accessSecret)
 	hClient := hc.NewHTTPClientWithConfig(nil, cfg)
 	healthPayload, err := hClient.Products.GetHealth(params, basicAuth)
@@ -193,6 +186,7 @@ func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, s
 			Message: "check health error",
 			Reason:  err.Error(),
 		})
+		overallStatus.Status = unhealthyStatus
 		return overallStatus, err
 	}
 
