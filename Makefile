@@ -1,6 +1,6 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= harbor-automation-4k8s:latest
+IMG ?= goharbor/harbor-automation-4k8s:dev
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 
