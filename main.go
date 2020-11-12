@@ -28,6 +28,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	corev1 "k8s.io/api/core/v1"
+
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
 	"github.com/szlabs/harbor-automation-4k8s/controllers"
 	// +kubebuilder:scaffold:imports
@@ -42,6 +44,7 @@ func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 
 	_ = goharborv1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -75,6 +78,14 @@ func main() {
 		RoundTripper: http.InsecureTransport,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HarborServerConfiguration")
+		os.Exit(1)
+	}
+	if err = (&controllers.NamespaceReconciler{
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("Namespace"),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
