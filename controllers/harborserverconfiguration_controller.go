@@ -145,25 +145,25 @@ type accessCred struct {
 }
 
 func (r *HarborServerConfigurationReconciler) getAccessCred(secret *corev1.Secret) (*accessCred, error) {
-	if len(secret.Data) < 2 {
+	encodedAK, ok1 := secret.Data[accessKey]
+	encodedAS, ok2 := secret.Data[accessSecret]
+	if !(ok1 && ok2) {
 		return nil, errors.New("invalid access secret")
 	}
 
 	cred := &accessCred{}
 
-	var ak []byte
-	encodedAK := secret.Data[accessKey]
-	if _, err := base64.StdEncoding.Decode(ak, encodedAK); err != nil {
+	ak, err := base64Decode(encodedAK)
+	if err != nil {
 		return nil, err
 	}
-	cred.accessKey = string(ak)
+	cred.accessKey = ak
 
-	var as []byte
-	encodedAS := secret.Data[accessSecret]
-	if _, err := base64.StdEncoding.Decode(as, encodedAS); err != nil {
+	as, err := base64Decode(encodedAS)
+	if err != nil {
 		return nil, err
 	}
-	cred.accessSecret = string(as)
+	cred.accessSecret = as
 
 	return cred, nil
 }
@@ -213,4 +213,18 @@ func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, s
 	}
 
 	return overallStatus, nil
+}
+
+func base64Decode(data []byte) (string, error) {
+	if len(data) == 0 {
+		return "", errors.New("empty data for base64 decoding")
+	}
+
+	decoded := make([]byte, base64.StdEncoding.DecodedLen(len(data)))
+
+	if _, err := base64.StdEncoding.Decode(decoded, data); err != nil {
+		return "", err
+	}
+
+	return string(decoded), nil
 }
