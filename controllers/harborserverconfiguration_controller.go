@@ -39,9 +39,11 @@ import (
 )
 
 const (
-	accessKey    = "accessKey"
-	accessSecret = "accessSecret"
-	defaultCycle = 5 * time.Minute
+	accessKey     = "accessKey"
+	accessSecret  = "accessSecret"
+	defaultCycle  = 5 * time.Minute
+	defaultStatus = "Unknown"
+	defaultComp   = "Harbor"
 )
 
 // HarborServerConfigurationReconciler reconciles a HarborServerConfiguration object
@@ -59,7 +61,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	log := r.Log.WithValues("harborserverconfiguration", req.NamespacedName)
 
 	// Get the configuration first
-	var hsc *goharborv1alpha1.HarborServerConfiguration
+	hsc := &goharborv1alpha1.HarborServerConfiguration{}
 	if err := r.Client.Get(ctx, req.NamespacedName, hsc); err != nil {
 		if apierr.IsNotFound(err) {
 			// It could have been deleted after reconcile request coming in.
@@ -73,7 +75,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 
 	// Check if the server configuration is valid.
 	// That is checking if the admin password secret object is valid.
-	var accessSecret *corev1.Secret
+	accessSecret := &corev1.Secret{}
 	secretNSedName := types.NamespacedName{
 		Namespace: req.Namespace,
 		Name:      hsc.Spec.AccessSecretRef,
@@ -96,12 +98,9 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	}
 
 	// Check server health and update the status of server configuration CR
-	st, err := r.checkHealth(ctx, hsc.Spec.ServerURL, cred)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	st, cerr := r.checkHealth(ctx, hsc.Spec.ServerURL, cred)
 
-	// Update status
+	// Update status first for both success and failed checks
 	hsc.Status = st
 	if err := r.Client.Status().Update(ctx, hsc); err != nil {
 		res := ctrl.Result{
@@ -114,11 +113,15 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 		}
 
 		if apierr.IsConflict(err) {
-			log.Error(err, "failed to update status")
+			r.Log.Error(err, "failed to update status")
 			return res, nil
 		}
 
 		return res, fmt.Errorf("failed to update status with error: %w", err)
+	}
+
+	if cerr != nil {
+		return ctrl.Result{}, cerr
 	}
 
 	// The health should be rechecked after a reasonable cycle
@@ -165,6 +168,7 @@ func (r *HarborServerConfigurationReconciler) getAccessCred(secret *corev1.Secre
 
 func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, serverURL string, cred *accessCred) (goharborv1alpha1.HarborServerConfigurationStatus, error) {
 	overallStatus := goharborv1alpha1.HarborServerConfigurationStatus{
+		Status:     defaultStatus,
 		Conditions: make([]goharborv1alpha1.Condition, 0),
 	}
 
@@ -181,6 +185,12 @@ func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, s
 	hClient := hc.NewHTTPClientWithConfig(nil, cfg)
 	healthPayload, err := hClient.Products.GetHealth(params, basicAuth)
 	if err != nil {
+		overallStatus.Conditions = append(overallStatus.Conditions, goharborv1alpha1.Condition{
+			Type:    status.ConditionType(defaultComp),
+			Status:  corev1.ConditionFalse,
+			Message: "check health error",
+			Reason:  err.Error(),
+		})
 		return overallStatus, err
 	}
 
