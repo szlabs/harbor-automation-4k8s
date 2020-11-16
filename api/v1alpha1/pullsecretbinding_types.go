@@ -50,6 +50,13 @@ type PullSecretBindingStatus struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +k8s:openapi-gen=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:categories="goharbor",shortName="psb"
+// +kubebuilder:printcolumn:name="Harbor Server",type=string,JSONPath=`.spec.harborServerConfig`,description="The Harbor server configuration CR reference",priority=0
+// +kubebuilder:printcolumn:name="Service Account",type=string,JSONPath=`.spec.serviceAccount`,description="The service account binding the pull secret",priority=0
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`,description="The status of the Harbor server",priority=0
 
 // PullSecretBinding is the Schema for the pullsecretbindings API
 type PullSecretBinding struct {
