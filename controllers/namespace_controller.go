@@ -85,7 +85,7 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		if len(bindings.Items) > 0 {
 			for _, bd := range bindings.Items {
 				// Remove all the existing bindings as issuer is removed
-				if err := r.Client.Delete(ctx, &bd, nil); err != nil {
+				if err := r.Client.Delete(ctx, &bd, &client.DeleteOptions{}); err != nil {
 					// Retry next time
 					return ctrl.Result{}, fmt.Errorf("remove binding %s error: %w", bd.Name, err)
 				}
@@ -117,7 +117,7 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	if err := controllerutil.SetControllerReference(ns, defaultBinding, r.Scheme); err != nil {
 		return ctrl.Result{}, fmt.Errorf("set crtl reference error: %w", err)
 	}
-	if err := r.Client.Create(ctx, defaultBinding, nil); err != nil {
+	if err := r.Client.Create(ctx, defaultBinding, &client.CreateOptions{}); err != nil {
 		return ctrl.Result{}, fmt.Errorf("create binding CR error: %w", err)
 	}
 

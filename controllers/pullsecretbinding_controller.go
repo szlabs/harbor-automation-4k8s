@@ -62,7 +62,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (ctrl.Result, 
 	}
 
 	// TODO:
-	log.Info("========TODO")
+	log.Info("========TODO", "name", bd)
 
 	return ctrl.Result{}, nil
 }
