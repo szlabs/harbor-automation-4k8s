@@ -17,6 +17,7 @@ package utils
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -37,5 +38,5 @@ func stringWithCharset(length int, charset string) string {
 
 // RandomName generates random names
 func RandomName(prefix string) string {
-	return fmt.Sprintf("%s-%s", prefix, stringWithCharset(nameLen, charset))
+	return strings.ToLower(fmt.Sprintf("%s-%s", prefix, stringWithCharset(nameLen, charset)))
 }
