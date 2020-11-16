@@ -63,6 +63,18 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (ctrl.Result, 
 
 	// TODO:
 	log.Info("========TODO", "name", bd)
+	status := goharborv1alpha1.PullSecretBindingStatus{
+		Status:     defaultStatus,
+		Conditions: []goharborv1alpha1.Condition{},
+	}
+	bd.Status = status
+	if err := r.Status().Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+		if apierr.IsConflict(err) {
+			log.Error(err, "failed to update status")
+		} else {
+			return ctrl.Result{}, err
+		}
+	}
 
 	return ctrl.Result{}, nil
 }
