@@ -20,8 +20,6 @@ import (
 	"flag"
 	"os"
 
-	"github.com/szlabs/harbor-automation-4k8s/pkg/http"
-
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -72,10 +70,9 @@ func main() {
 	}
 
 	if err = (&controllers.HarborServerConfigurationReconciler{
-		Client:       mgr.GetClient(),
-		Log:          ctrl.Log.WithName("controllers").WithName("HarborServerConfiguration"),
-		Scheme:       mgr.GetScheme(),
-		RoundTripper: http.InsecureTransport,
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("HarborServerConfiguration"),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HarborServerConfiguration")
 		os.Exit(1)
@@ -86,6 +83,14 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
+		os.Exit(1)
+	}
+	if err = (&controllers.PullSecretBindingReconciler{
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("PullSecretBinding"),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PullSecretBinding")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

@@ -21,8 +21,8 @@ import (
 	"time"
 )
 
-// InsecureTransport provide a insecure RoundTripper and disable the HTTP2 try
-var InsecureTransport nhttp.RoundTripper = &nhttp.Transport{
+// insecureTransport provides a insecure RoundTripper and disable the HTTP2 try
+var insecureTransport nhttp.RoundTripper = &nhttp.Transport{
 	Proxy: nhttp.ProxyFromEnvironment,
 	DialContext: (&net.Dialer{
 		Timeout:   30 * time.Second,
@@ -37,3 +37,6 @@ var InsecureTransport nhttp.RoundTripper = &nhttp.Transport{
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 1 * time.Second,
 }
+
+// Client is an insecure HTTP client
+var Client *nhttp.Client = &nhttp.Client{Transport: insecureTransport}

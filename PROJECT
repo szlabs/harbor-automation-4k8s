@@ -4,4 +4,7 @@ resources:
 - group: goharbor
   kind: HarborServerConfiguration
   version: v1alpha1
+- group: goharbor
+  kind: PullSecretBinding
+  version: v1alpha1
 version: "2"

@@ -18,10 +18,8 @@ package controllers
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -35,6 +33,7 @@ import (
 	"sigs.k8s.io/kustomize/kstatus/status"
 
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
+	ghttp "github.com/szlabs/harbor-automation-4k8s/pkg/http"
 	hc "github.com/szlabs/harbor-automation-4k8s/pkg/sdk/harbor/client"
 	"github.com/szlabs/harbor-automation-4k8s/pkg/sdk/harbor/client/products"
 )
@@ -51,9 +50,8 @@ const (
 // HarborServerConfigurationReconciler reconciles a HarborServerConfiguration object
 type HarborServerConfigurationReconciler struct {
 	client.Client
-	Log          logr.Logger
-	Scheme       *runtime.Scheme
-	RoundTripper http.RoundTripper
+	Log    logr.Logger
+	Scheme *runtime.Scheme
 }
 
 // +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=harborserverconfigurations,verbs=get;list;watch;create;update;patch;delete
@@ -175,7 +173,7 @@ func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, s
 
 	params := products.NewGetHealthParamsWithContext(ctx).
 		WithTimeout(30 * time.Second).
-		WithHTTPClient(&http.Client{Transport: r.RoundTripper})
+		WithHTTPClient(ghttp.Client)
 	basicAuth := httptransport.BasicAuth(cred.accessKey, cred.accessSecret)
 	hClient := hc.NewHTTPClientWithConfig(nil, cfg)
 	healthPayload, err := hClient.Products.GetHealth(params, basicAuth)
@@ -207,18 +205,4 @@ func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, s
 	}
 
 	return overallStatus, nil
-}
-
-func base64Decode(data []byte) (string, error) {
-	if len(data) == 0 {
-		return "", errors.New("empty data for base64 decoding")
-	}
-
-	decoded := make([]byte, base64.StdEncoding.DecodedLen(len(data)))
-
-	if _, err := base64.StdEncoding.Decode(decoded, data); err != nil {
-		return "", err
-	}
-
-	return string(decoded), nil
 }

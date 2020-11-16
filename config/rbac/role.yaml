@@ -54,3 +54,23 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - goharbor.goharbor.io
+  resources:
+  - pullsecretbindings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - goharbor.goharbor.io
+  resources:
+  - pullsecretbindings/status
+  verbs:
+  - get
+  - patch
+  - update
