@@ -83,7 +83,7 @@ type Condition struct {
 // +kubebuilder:storageversion
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:categories="goharbor",shortName="hsc"
+// +kubebuilder:resource:categories="goharbor",shortName="hsc",scope="Cluster"
 // +kubebuilder:printcolumn:name="Harbor Server",type=string,JSONPath=`.spec.serverURL`,description="The public URL to the Harbor server",priority=0
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`,description="The status of the Harbor server",priority=0
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.spec.version`,description="The version of the Harbor server",priority=5

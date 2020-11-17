@@ -57,7 +57,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (ctrl.Result, 
 
 	// Check if the binding is being deleted
 	if !bd.ObjectMeta.DeletionTimestamp.IsZero() {
-		log.Info("pull secret binding is being deleted", "name", req.NamespacedName)
+		log.Info("pull secret binding is being deleted")
 		return ctrl.Result{}, nil
 	}
 

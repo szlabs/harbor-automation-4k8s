@@ -32,7 +32,7 @@ spec:
     shortNames:
     - hsc
     singular: harborserverconfiguration
-  scope: Namespaced
+  scope: Cluster
   subresources:
     status: {}
   validation:
