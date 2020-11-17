@@ -35,13 +35,23 @@ type HarborServerConfigurationSpec struct {
 	ServerURL string `json:"serverURL"`
 
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*"
-	AccessSecretRef string `json:"accessSecretRef"`
+	AccessCredential *AccessCredential `json:"accessCredential"`
 
 	// The version of the Harbor server
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern="(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?"
 	Version string `json:"version"`
+}
+
+// AccessCredential is a namespaced credential to keep the access key and secret for the harbor server configuration
+type AccessCredential struct {
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*"
+	Namespace string `json:"namespace"`
+
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*"
+	AccessSecretRef string `json:"accessSecretRef"`
 }
 
 // HarborServerConfigurationStatus defines the observed state of HarborServerConfiguration

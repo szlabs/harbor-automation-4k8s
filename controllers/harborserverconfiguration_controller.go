@@ -80,8 +80,8 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	// That is checking if the admin password secret object is valid.
 	accessSecret := &corev1.Secret{}
 	secretNSedName := types.NamespacedName{
-		Namespace: req.Namespace,
-		Name:      hsc.Spec.AccessSecretRef,
+		Namespace: hsc.Spec.AccessCredential.Namespace,
+		Name:      hsc.Spec.AccessCredential.AccessSecretRef,
 	}
 
 	if err := r.Client.Get(ctx, secretNSedName, accessSecret); err != nil {

@@ -56,9 +56,20 @@ spec:
           description: HarborServerConfigurationSpec defines the desired state of
             HarborServerConfiguration
           properties:
-            accessSecretRef:
-              pattern: '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*'
-              type: string
+            accessCredential:
+              description: AccessCredential is a namespaced credential to keep the
+                access key and secret for the harbor server configuration
+              properties:
+                accessSecretRef:
+                  pattern: '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*'
+                  type: string
+                namespace:
+                  pattern: '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*'
+                  type: string
+              required:
+              - accessSecretRef
+              - namespace
+              type: object
             serverURL:
               pattern: (?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)+([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])
               type: string
@@ -67,7 +78,7 @@ spec:
               pattern: (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
               type: string
           required:
-          - accessSecretRef
+          - accessCredential
           - serverURL
           - version
           type: object

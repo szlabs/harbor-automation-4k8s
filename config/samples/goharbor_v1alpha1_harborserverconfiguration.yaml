@@ -2,6 +2,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: mysecret
+  namespace: kube-system
 type: Opaque
 data:
   username: YWRtaW4=
@@ -13,5 +14,7 @@ metadata:
   name: harborserverconfiguration-sample
 spec:
   serverURL: https://goharbor.io
-  accessSecretRef: mysecret
+  accessCredential:
+    namespace: kube-system
+    accessSecretRef: mysecret
   version: 2.1.0
