@@ -20,6 +20,10 @@ import (
 	"flag"
 	"os"
 
+	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
+
+	v2 "github.com/szlabs/harbor-automation-4k8s/pkg/rest/v2"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -86,9 +90,11 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controllers.PullSecretBindingReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("PullSecretBinding"),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Log:      ctrl.Log.WithName("controllers").WithName("PullSecretBinding"),
+		Scheme:   mgr.GetScheme(),
+		HarborV2: v2.New(),
+		Harbor:   legacy.New(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PullSecretBinding")
 		os.Exit(1)

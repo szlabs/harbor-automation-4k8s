@@ -86,10 +86,18 @@ DOCKERCMD=$(shell which docker)
 SWAGGER := $(DOCKERCMD) run --rm -it -v $(HOME):$(HOME) -w $(shell pwd) quay.io/goswagger/swagger
 HARBOR_SPEC := ./assets/api_swagger.yml
 SDK_DIR := ./pkg/sdk/harbor
+HARBOR_SPEC_V2 := ./assets/api_swagger_v2.yml
+SDK_DIR_V2 := ./pkg/sdk/harbor_v2
 
 swag_validate:
 	@$(SWAGGER) validate $(HARBOR_SPEC)
 
 swag_harbor_sdk: swag_validate
 	@$(SWAGGER) generate client --spec=$(HARBOR_SPEC) --target=$(SDK_DIR) -A harbor --principal=basic
+
+swag_validate_v2:
+	@$(SWAGGER) validate $(HARBOR_SPEC_V2)
+
+swag_harbor_sdk_v2: swag_validate_v2
+	@$(SWAGGER) generate client --spec=$(HARBOR_SPEC_V2) --target=$(SDK_DIR_V2) -A harbor --principal=basic
 

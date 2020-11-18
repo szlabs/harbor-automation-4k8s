@@ -19,28 +19,54 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strconv"
 
-	apierr "k8s.io/apimachinery/pkg/api/errors"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/registry/secret"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	apierr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/model"
+	v2 "github.com/szlabs/harbor-automation-4k8s/pkg/rest/v2"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/utils"
+)
+
+const (
+	annotationProject        = "goharbor.io/project"
+	annotationRobot          = "goharbor.io/robot"
+	annotationRobotSecretRef = "goharbor.io/robot-secret"
+	annotationSecOwner       = "goharbor.io/owner"
+	defaultOwner             = "harbor-automation-4k8s"
+	regSecType               = "kubernetes.io/dockerconfigjson"
+	datakey                  = ".dockerconfigjson"
 )
 
 // PullSecretBindingReconciler reconciles a PullSecretBinding object
 type PullSecretBindingReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log      logr.Logger
+	Scheme   *runtime.Scheme
+	HarborV2 *v2.Client
+	Harbor   *legacy.Client
 }
 
 // +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=pullsecretbindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=pullsecretbindings/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=harborserverconfigurations,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;update;patch
 
-func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
+func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Result, ferr error) {
 	ctx := context.Background()
 	log := r.Log.WithValues("pullsecretbinding", req.NamespacedName)
 
@@ -61,22 +87,246 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (ctrl.Result, 
 		return ctrl.Result{}, nil
 	}
 
-	// TODO:
-	log.Info("========TODO", "name", bd)
-	status := goharborv1alpha1.PullSecretBindingStatus{
-		Status:     defaultStatus,
-		Conditions: []goharborv1alpha1.Condition{},
+	defer func() {
+		if ferr != nil {
+			bd.Status.Status = "error"
+			if err := r.Status().Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+				log.Error(err, "defer update status error", "cause", err)
+			}
+		}
+	}()
+
+	// Check binding resources
+	server, sa, res, err := r.checkBindingRes(ctx, bd)
+	if server == nil {
+		return res, fmt.Errorf("checking binding error: %w", err)
 	}
-	bd.Status = status
-	if err := r.Status().Update(ctx, bd, &client.UpdateOptions{}); err != nil {
-		if apierr.IsConflict(err) {
-			log.Error(err, "failed to update status")
-		} else {
-			return ctrl.Result{}, err
+
+	// Talk to this server
+	r.HarborV2.WithServer(server)
+
+	// Check linked project info
+	pro, ok := bd.Annotations[annotationProject]
+	if !ok {
+		pro = utils.RandomName(bd.Namespace)
+	}
+
+	// Ensure project
+	proID, err := r.HarborV2.EnsureProject(pro)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("ensure project error: %w", err)
+	}
+
+	if !ok {
+		bd.Annotations[annotationProject] = pro
+		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+			// TODO: If update failed, how should we handle the created project in Harbor side
+			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
 		}
 	}
 
-	return ctrl.Result{}, nil
+	// Check robot account
+	var (
+		robot   *model.Robot
+		er      error
+		created = true
+	)
+	robotID, ok := bd.Annotations[annotationRobot]
+	if ok {
+		if rid, err := strconv.ParseInt(robotID, 10, 64); err == nil {
+			if robot, er = r.Harbor.GetRobotAccount(proID, rid); er == nil {
+				created = false
+			}
+		}
+	}
+
+	if created {
+		// Need to create a new one
+		robot, er = r.Harbor.CreateRobotAccount(proID)
+		if er != nil {
+			return ctrl.Result{}, fmt.Errorf("create ronot account error: %w", er)
+		}
+
+		// Add annotation
+		bd.Annotations[annotationRobot] = fmt.Sprintf("%d", robot.ID)
+		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
+		}
+
+		log.Info("create robot account", "robot", robot)
+	}
+
+	// Bind robot to service account
+	// TODO: check secret binding by get secret and service account
+	_, ok = bd.Annotations[annotationRobotSecretRef]
+	if !ok {
+		// Make registry secret
+		regsec, err := r.createRegSec(ctx, bd.Namespace, server.ServerURL, robot)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("create registry secret error: %w", err)
+		}
+		// Add secret to service account
+		if sa.ImagePullSecrets == nil {
+			sa.ImagePullSecrets = make([]corev1.LocalObjectReference, 0)
+		}
+		sa.ImagePullSecrets = append(sa.ImagePullSecrets, corev1.LocalObjectReference{
+			Name: regsec,
+		})
+
+		// Update
+		if err := r.Client.Update(ctx, sa, &client.UpdateOptions{}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
+		}
+	}
+
+	// TODO: add conditions
+	if bd.Status.Status != "ready" {
+		bd.Status.Status = "ready"
+		if err := r.Status().Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+			if apierr.IsConflict(err) {
+				log.Error(err, "failed to update status")
+			} else {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	// Loop
+	return ctrl.Result{
+		RequeueAfter: defaultCycle,
+	}, nil
+}
+
+func (r *PullSecretBindingReconciler) getConfigData(ctx context.Context, hsc *goharborv1alpha1.HarborServerConfiguration) (*model.HarborServer, error) {
+	s := &model.HarborServer{
+		ServerURL: hsc.Spec.ServerURL,
+	}
+
+	namespacedName := types.NamespacedName{
+		Namespace: hsc.Spec.AccessCredential.Namespace,
+		Name:      hsc.Spec.AccessCredential.AccessSecretRef,
+	}
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, namespacedName, secret); err != nil {
+		return nil, fmt.Errorf("failed to get the configured secret with error: %w", err)
+	}
+
+	cred := &model.AccessCred{}
+	if err := cred.FillIn(secret); err != nil {
+		return nil, fmt.Errorf("get credential error: %w", err)
+	}
+
+	s.AccessCred = cred
+
+	return s, nil
+}
+
+func (r *PullSecretBindingReconciler) checkBindingRes(ctx context.Context, psb *goharborv1alpha1.PullSecretBinding) (*model.HarborServer, *corev1.ServiceAccount, ctrl.Result, error) {
+	// Get server configuration
+	hsc, err := r.getHarborServerConfig(ctx, psb.Spec.HarborServerConfig)
+	if err != nil {
+		// Retry later
+		return nil, nil, ctrl.Result{}, fmt.Errorf("get server configuration error: %w", err)
+	}
+
+	if hsc == nil {
+		// Not exist
+		r.Log.Info("harbor server configuration does not exists", "name", psb.Spec.HarborServerConfig)
+		// Do not need to reconcile again
+		return nil, nil, ctrl.Result{}, nil
+	}
+
+	if hsc.Status.Status == defaultStatus || hsc.Status.Status == unhealthyStatus {
+		return nil, nil, ctrl.Result{}, fmt.Errorf("status of Harbor server referred in configuration %s is unexpected: %s", hsc.Name, hsc.Status.Status)
+	}
+
+	// Get the specified service account
+	sa, err := r.getServiceAccount(ctx, psb.Namespace, psb.Spec.ServiceAccount)
+	if err != nil {
+		// Retry later
+		return nil, nil, ctrl.Result{}, fmt.Errorf("get service account error: %w", err)
+	}
+
+	if sa == nil {
+		// Not exist
+		r.Log.Info("service account does not exist", "name", psb.Spec.ServiceAccount)
+		// Do not need to reconcile again
+		return nil, nil, ctrl.Result{}, nil
+	}
+
+	hs, err := r.getConfigData(ctx, hsc)
+	if err != nil {
+		return nil, nil, ctrl.Result{}, fmt.Errorf("get config data error: %w", err)
+	}
+
+	return hs, sa, ctrl.Result{}, nil
+}
+
+func (r *PullSecretBindingReconciler) getHarborServerConfig(ctx context.Context, name string) (*goharborv1alpha1.HarborServerConfiguration, error) {
+	hsc := &goharborv1alpha1.HarborServerConfiguration{}
+	// HarborServerConfiguration is cluster scoped resource
+	namespacedName := types.NamespacedName{
+		Name: name,
+	}
+	if err := r.Client.Get(ctx, namespacedName, hsc); err != nil {
+		// Explicitly check not found error
+		if apierr.IsNotFound(err) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	return hsc, nil
+}
+
+func (r *PullSecretBindingReconciler) getServiceAccount(ctx context.Context, ns, name string) (*corev1.ServiceAccount, error) {
+	sc := &corev1.ServiceAccount{}
+	namespacedName := types.NamespacedName{
+		Namespace: ns,
+		Name:      name,
+	}
+
+	if err := r.Client.Get(ctx, namespacedName, sc); err != nil {
+		if apierr.IsNotFound(err) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	return sc, nil
+}
+
+func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespace string, registry string, robot *model.Robot) (string, error) {
+	auths := secret.Object{
+		Auths: map[string]*secret.Auth{
+			fmt.Sprintf("https://%s", registry): &secret.Auth{
+				Username: robot.Name,
+				Password: robot.Token,
+				Email:    fmt.Sprintf("%s@goharbor.io", robot.Name),
+			},
+		},
+	}
+
+	encoded := auths.Encode()
+
+	name := utils.RandomName("regsecret")
+	regSec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Annotations: map[string]string{
+				annotationSecOwner: defaultOwner,
+			},
+		},
+		Type: regSecType,
+		Data: map[string][]byte{
+			datakey: []byte(encoded),
+		},
+	}
+
+	return name, r.Client.Create(ctx, regSec, &client.CreateOptions{})
 }
 
 func (r *PullSecretBindingReconciler) SetupWithManager(mgr ctrl.Manager) error {

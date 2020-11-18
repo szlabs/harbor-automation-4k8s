@@ -13,7 +13,7 @@ kind: HarborServerConfiguration
 metadata:
   name: harborserverconfiguration-sample
 spec:
-  serverURL: https://goharbor.io
+  serverURL: goharbor.io
   accessCredential:
     namespace: kube-system
     accessSecretRef: mysecret

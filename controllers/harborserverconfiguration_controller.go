@@ -18,9 +18,10 @@ package controllers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
+
+	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/model"
 
 	"github.com/go-logr/logr"
 	httptransport "github.com/go-openapi/runtime/client"
@@ -39,8 +40,6 @@ import (
 )
 
 const (
-	accessKey       = "accessKey"
-	accessSecret    = "accessSecret"
 	defaultCycle    = 5 * time.Minute
 	defaultStatus   = "Unknown"
 	unhealthyStatus = "UnHealthy"
@@ -89,9 +88,14 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
-	cred, err := r.getAccessCred(accessSecret)
-	if err != nil {
-		return ctrl.Result{}, err
+	cred := &model.AccessCred{}
+	if err := cred.FillIn(accessSecret); err != nil {
+		return ctrl.Result{}, fmt.Errorf("fill in secret error: %w", err)
+	}
+
+	server := &model.HarborServer{
+		AccessCred: cred,
+		ServerURL:  hsc.Spec.ServerURL,
 	}
 
 	// Check if the configuration is being deleted
@@ -101,7 +105,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	}
 
 	// Check server health and update the status of server configuration CR
-	st, cerr := r.checkHealth(ctx, hsc.Spec.ServerURL, cred)
+	st, cerr := r.checkHealth(ctx, server)
 
 	// Update status first for both success and failed checks
 	hsc.Status = st
@@ -140,25 +144,7 @@ func (r *HarborServerConfigurationReconciler) SetupWithManager(mgr ctrl.Manager)
 		Complete(r)
 }
 
-type accessCred struct {
-	accessKey    string
-	accessSecret string
-}
-
-func (r *HarborServerConfigurationReconciler) getAccessCred(secret *corev1.Secret) (*accessCred, error) {
-	decodedAK, ok1 := secret.Data[accessKey]
-	decodedAS, ok2 := secret.Data[accessSecret]
-	if !(ok1 && ok2) {
-		return nil, errors.New("invalid access secret")
-	}
-
-	return &accessCred{
-		accessKey:    string(decodedAK),
-		accessSecret: string(decodedAS),
-	}, nil
-}
-
-func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, serverURL string, cred *accessCred) (goharborv1alpha1.HarborServerConfigurationStatus, error) {
+func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, server *model.HarborServer) (goharborv1alpha1.HarborServerConfigurationStatus, error) {
 	overallStatus := goharborv1alpha1.HarborServerConfigurationStatus{
 		Status:     defaultStatus,
 		Conditions: make([]goharborv1alpha1.Condition, 0),
@@ -166,7 +152,7 @@ func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, s
 
 	// New client
 	cfg := &hc.TransportConfig{
-		Host:     serverURL,
+		Host:     server.ServerURL,
 		BasePath: hc.DefaultBasePath,
 		Schemes:  hc.DefaultSchemes,
 	}
@@ -174,7 +160,7 @@ func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, s
 	params := products.NewGetHealthParamsWithContext(ctx).
 		WithTimeout(30 * time.Second).
 		WithHTTPClient(ghttp.Client)
-	basicAuth := httptransport.BasicAuth(cred.accessKey, cred.accessSecret)
+	basicAuth := httptransport.BasicAuth(server.AccessCred.AccessKey, server.AccessCred.AccessSecret)
 	hClient := hc.NewHTTPClientWithConfig(nil, cfg)
 	healthPayload, err := hClient.Products.GetHealth(params, basicAuth)
 	if err != nil {

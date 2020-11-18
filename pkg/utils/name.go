@@ -17,6 +17,7 @@ package utils
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -39,4 +40,10 @@ func stringWithCharset(length int, charset string) string {
 // RandomName generates random names
 func RandomName(prefix string) string {
 	return strings.ToLower(fmt.Sprintf("%s-%s", prefix, stringWithCharset(nameLen, charset)))
+}
+
+// ExtractID extracts ID from location of response
+func ExtractID(location string) (int64, error) {
+	idstr := location[strings.LastIndex(location, "/")+1:]
+	return strconv.ParseInt(idstr, 10, 64)
 }
