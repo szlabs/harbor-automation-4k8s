@@ -21,21 +21,19 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/szlabs/harbor-automation-4k8s/pkg/registry/secret"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
-
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/registry/secret"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
 	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/model"
 	v2 "github.com/szlabs/harbor-automation-4k8s/pkg/rest/v2"
 	"github.com/szlabs/harbor-automation-4k8s/pkg/utils"
@@ -49,6 +47,7 @@ const (
 	defaultOwner             = "harbor-automation-4k8s"
 	regSecType               = "kubernetes.io/dockerconfigjson"
 	datakey                  = ".dockerconfigjson"
+	finalizerID              = "psb.finalizers.resource.goharbor.io"
 )
 
 // PullSecretBindingReconciler reconciles a PullSecretBinding object
@@ -81,21 +80,6 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		return ctrl.Result{}, fmt.Errorf("get binding CR error: %w", err)
 	}
 
-	// Check if the binding is being deleted
-	if !bd.ObjectMeta.DeletionTimestamp.IsZero() {
-		log.Info("pull secret binding is being deleted")
-		return ctrl.Result{}, nil
-	}
-
-	defer func() {
-		if ferr != nil {
-			bd.Status.Status = "error"
-			if err := r.Status().Update(ctx, bd, &client.UpdateOptions{}); err != nil {
-				log.Error(err, "defer update status error", "cause", err)
-			}
-		}
-	}()
-
 	// Check binding resources
 	server, sa, res, err := r.checkBindingRes(ctx, bd)
 	if server == nil {
@@ -104,6 +88,41 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 
 	// Talk to this server
 	r.HarborV2.WithServer(server)
+
+	// Check if the binding is being deleted
+	if bd.ObjectMeta.DeletionTimestamp.IsZero() {
+		if !utils.ContainsString(bd.ObjectMeta.Finalizers, finalizerID) {
+			// Append finalizer
+			bd.ObjectMeta.Finalizers = append(bd.ObjectMeta.Finalizers, finalizerID)
+			if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		if utils.ContainsString(bd.ObjectMeta.Finalizers, finalizerID) {
+			// Execute and remove our finalizer from the finalizer list
+			if err := r.deleteExternalResources(bd); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			bd.ObjectMeta.Finalizers = utils.RemoveString(bd.ObjectMeta.Finalizers, finalizerID)
+			if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		log.Info("pull secret binding is being deleted")
+		return ctrl.Result{}, nil
+	}
+
+	defer func() {
+		if ferr != nil && bd.Status.Status != "error" {
+			bd.Status.Status = "error"
+			if err := r.Status().Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+				log.Error(err, "defer update status error", "cause", err)
+			}
+		}
+	}()
 
 	// Check linked project info
 	pro, ok := bd.Annotations[annotationProject]
@@ -118,7 +137,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 	}
 
 	if !ok {
-		bd.Annotations[annotationProject] = pro
+		setAnnotation(bd, annotationProject, pro)
 		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
 			// TODO: If update failed, how should we handle the created project in Harbor side
 			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
@@ -148,7 +167,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		}
 
 		// Add annotation
-		bd.Annotations[annotationRobot] = fmt.Sprintf("%d", robot.ID)
+		setAnnotation(bd, annotationRobot, fmt.Sprintf("%d", robot.ID))
 		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
 		}
@@ -170,11 +189,20 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 			sa.ImagePullSecrets = make([]corev1.LocalObjectReference, 0)
 		}
 		sa.ImagePullSecrets = append(sa.ImagePullSecrets, corev1.LocalObjectReference{
-			Name: regsec,
+			Name: regsec.Name,
 		})
 
 		// Update
 		if err := r.Client.Update(ctx, sa, &client.UpdateOptions{}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
+		}
+
+		// Update binding
+		if err := controllerutil.SetControllerReference(bd, regsec, r.Scheme); err != nil {
+			r.Log.Error(err, "set controller reference", "owner", bd.ObjectMeta, "controlled", regsec.ObjectMeta)
+		}
+		setAnnotation(bd, annotationRobotSecretRef, regsec.Name)
+		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
 		}
 	}
@@ -298,7 +326,7 @@ func (r *PullSecretBindingReconciler) getServiceAccount(ctx context.Context, ns,
 	return sc, nil
 }
 
-func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespace string, registry string, robot *model.Robot) (string, error) {
+func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespace string, registry string, robot *model.Robot) (*corev1.Secret, error) {
 	auths := secret.Object{
 		Auths: map[string]*secret.Auth{
 			fmt.Sprintf("https://%s", registry): &secret.Auth{
@@ -311,10 +339,9 @@ func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespac
 
 	encoded := auths.Encode()
 
-	name := utils.RandomName("regsecret")
 	regSec := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      utils.RandomName("regsecret"),
 			Namespace: namespace,
 			Annotations: map[string]string{
 				annotationSecOwner: defaultOwner,
@@ -326,11 +353,31 @@ func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespac
 		},
 	}
 
-	return name, r.Client.Create(ctx, regSec, &client.CreateOptions{})
+	return regSec, r.Client.Create(ctx, regSec, &client.CreateOptions{})
+}
+
+func (r *PullSecretBindingReconciler) deleteExternalResources(bd *goharborv1alpha1.PullSecretBinding) error {
+	if pro, ok := bd.Annotations[annotationProject]; ok {
+		if err := r.HarborV2.DeleteProject(pro); err != nil {
+			// TODO: handle delete error
+			// Delete non-empty project will cause error?
+			r.Log.Error(err, "delete external resources", "finalizer", finalizerID)
+		}
+	}
+
+	return nil
 }
 
 func (r *PullSecretBindingReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&goharborv1alpha1.PullSecretBinding{}).
 		Complete(r)
+}
+
+func setAnnotation(obj *goharborv1alpha1.PullSecretBinding, key string, value string) {
+	if obj.Annotations == nil {
+		obj.Annotations = make(map[string]string)
+	}
+
+	obj.Annotations[key] = value
 }
