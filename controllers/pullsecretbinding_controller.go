@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -46,7 +45,7 @@ const (
 	annotationSecOwner       = "goharbor.io/owner"
 	defaultOwner             = "harbor-automation-4k8s"
 	regSecType               = "kubernetes.io/dockerconfigjson"
-	datakey                  = ".dockerconfigjson"
+	datakey                  = ".dockercfg"
 	finalizerID              = "psb.finalizers.resource.goharbor.io"
 )
 
@@ -148,41 +147,17 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		}
 	}
 
-	// Check robot account
-	var (
-		robot   *model.Robot
-		er      error
-		created = true
-	)
-	robotID, ok := bd.Annotations[annotationRobot]
-	if ok {
-		if rid, err := strconv.ParseInt(robotID, 10, 64); err == nil {
-			if robot, er = r.Harbor.GetRobotAccount(proID, rid); er == nil {
-				created = false
-			}
-		}
-	}
-
-	if created {
-		// Need to create a new one
-		robot, er = r.Harbor.CreateRobotAccount(proID)
-		if er != nil {
-			return ctrl.Result{}, fmt.Errorf("create robot account error: %w", er)
-		}
-
-		// Add annotation
-		setAnnotation(bd, annotationRobot, fmt.Sprintf("%d", robot.ID))
-		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
-		}
-
-		log.Info("create robot account", "robot", robot)
-	}
-
 	// Bind robot to service account
+	// TODO: may cause dirty robots at the harbor project side
 	// TODO: check secret binding by get secret and service account
 	_, ok = bd.Annotations[annotationRobotSecretRef]
 	if !ok {
+		// Need to create a new one as we only have one time to get the robot token
+		robot, err := r.Harbor.CreateRobotAccount(proID)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("create robot account error: %w", err)
+		}
+
 		// Make registry secret
 		regsec, err := r.createRegSec(ctx, bd.Namespace, server.ServerURL, robot)
 		if err != nil {
@@ -205,6 +180,8 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		if err := controllerutil.SetControllerReference(bd, regsec, r.Scheme); err != nil {
 			r.Log.Error(err, "set controller reference", "owner", bd.ObjectMeta, "controlled", regsec.ObjectMeta)
 		}
+
+		setAnnotation(bd, annotationRobot, fmt.Sprintf("%d", robot.ID))
 		setAnnotation(bd, annotationRobotSecretRef, regsec.Name)
 		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
@@ -241,13 +218,13 @@ func (r *PullSecretBindingReconciler) getConfigData(ctx context.Context, hsc *go
 		Namespace: hsc.Spec.AccessCredential.Namespace,
 		Name:      hsc.Spec.AccessCredential.AccessSecretRef,
 	}
-	secret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, namespacedName, secret); err != nil {
+	sec := &corev1.Secret{}
+	if err := r.Client.Get(ctx, namespacedName, sec); err != nil {
 		return nil, fmt.Errorf("failed to get the configured secret with error: %w", err)
 	}
 
 	cred := &model.AccessCred{}
-	if err := cred.FillIn(secret); err != nil {
+	if err := cred.FillIn(sec); err != nil {
 		return nil, fmt.Errorf("get credential error: %w", err)
 	}
 
@@ -334,14 +311,12 @@ func (r *PullSecretBindingReconciler) getServiceAccount(ctx context.Context, ns,
 }
 
 func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespace string, registry string, robot *model.Robot) (*corev1.Secret, error) {
-	auths := secret.Object{
-		Auths: map[string]*secret.Auth{
-			fmt.Sprintf("https://%s", registry): &secret.Auth{
-				Username: robot.Name,
-				Password: robot.Token,
-				Email:    fmt.Sprintf("%s@goharbor.io", robot.Name),
-			},
-		},
+	auths := make(secret.Object)
+	reg := fmt.Sprintf("https://%s", registry)
+	auths[reg] = &secret.Auth{
+		Username: robot.Name,
+		Password: robot.Token,
+		Email:    fmt.Sprintf("%s@goharbor.io", robot.Name),
 	}
 
 	encoded := auths.Encode()
@@ -356,7 +331,7 @@ func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespac
 		},
 		Type: regSecType,
 		Data: map[string][]byte{
-			datakey: []byte(encoded),
+			datakey: encoded,
 		},
 	}
 
