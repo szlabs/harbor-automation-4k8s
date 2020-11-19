@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -45,7 +46,7 @@ const (
 	annotationSecOwner       = "goharbor.io/owner"
 	defaultOwner             = "harbor-automation-4k8s"
 	regSecType               = "kubernetes.io/dockerconfigjson"
-	datakey                  = ".dockercfg"
+	datakey                  = ".dockerconfigjson"
 	finalizerID              = "psb.finalizers.resource.goharbor.io"
 )
 
@@ -152,10 +153,28 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 	// TODO: check secret binding by get secret and service account
 	_, ok = bd.Annotations[annotationRobotSecretRef]
 	if !ok {
+		// Clear the useless old one if it is existing
+		if idstr, ok := bd.Annotations[annotationRobot]; ok {
+			if rid, err := strconv.ParseInt(idstr, 10, 64); err == nil {
+				if err := r.Harbor.DeleteRobotAccount(proID, rid); err != nil {
+					// Just log
+					r.Log.Error(err, "delete useless old robot", "ID", rid)
+				} else {
+					r.Log.Error(err, "invalid robot ID", "ID", idstr)
+				}
+			}
+		}
+
 		// Need to create a new one as we only have one time to get the robot token
 		robot, err := r.Harbor.CreateRobotAccount(proID)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("create robot account error: %w", err)
+		}
+
+		// Keep robot info at this moment in case some of the following steps are failed
+		setAnnotation(bd, annotationRobot, fmt.Sprintf("%d", robot.ID))
+		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
 		}
 
 		// Make registry secret
