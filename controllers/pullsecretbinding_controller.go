@@ -95,7 +95,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		if !utils.ContainsString(bd.ObjectMeta.Finalizers, finalizerID) {
 			// Append finalizer
 			bd.ObjectMeta.Finalizers = append(bd.ObjectMeta.Finalizers, finalizerID)
-			if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+			if err := r.update(ctx, bd); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -142,7 +142,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 
 	if !ok {
 		setAnnotation(bd, annotationProject, pro)
-		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+		if err := r.update(ctx, bd); err != nil {
 			// TODO: If update failed, how should we handle the created project in Harbor side
 			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
 		}
@@ -173,7 +173,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 
 		// Keep robot info at this moment in case some of the following steps are failed
 		setAnnotation(bd, annotationRobot, fmt.Sprintf("%d", robot.ID))
-		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+		if err := r.update(ctx, bd); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
 		}
 
@@ -202,7 +202,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 
 		setAnnotation(bd, annotationRobot, fmt.Sprintf("%d", robot.ID))
 		setAnnotation(bd, annotationRobotSecretRef, regsec.Name)
-		if err := r.Client.Update(ctx, bd, &client.UpdateOptions{}); err != nil {
+		if err := r.update(ctx, bd); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
 		}
 	}
@@ -226,6 +226,19 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 	return ctrl.Result{
 		RequeueAfter: defaultCycle,
 	}, nil
+}
+
+func (r *PullSecretBindingReconciler) update(ctx context.Context, binding *goharborv1alpha1.PullSecretBinding) error {
+	if err := r.Client.Update(ctx, binding, &client.UpdateOptions{}); err != nil {
+		return err
+	}
+
+	// Refresh object status to avoid problem
+	namespacedName := types.NamespacedName{
+		Name:      binding.Name,
+		Namespace: binding.Namespace,
+	}
+	return r.Client.Get(ctx, namespacedName, binding)
 }
 
 func (r *PullSecretBindingReconciler) getConfigData(ctx context.Context, hsc *goharborv1alpha1.HarborServerConfiguration) (*model.HarborServer, error) {
