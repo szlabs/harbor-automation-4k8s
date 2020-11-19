@@ -88,6 +88,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 
 	// Talk to this server
 	r.HarborV2.WithServer(server)
+	r.Harbor.WithServer(server)
 
 	// Check if the binding is being deleted
 	if bd.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -118,6 +119,9 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 	defer func() {
 		if ferr != nil && bd.Status.Status != "error" {
 			bd.Status.Status = "error"
+			if bd.Status.Conditions == nil {
+				bd.Status.Conditions = make([]goharborv1alpha1.Condition, 0)
+			}
 			if err := r.Status().Update(ctx, bd, &client.UpdateOptions{}); err != nil {
 				log.Error(err, "defer update status error", "cause", err)
 			}
@@ -163,7 +167,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		// Need to create a new one
 		robot, er = r.Harbor.CreateRobotAccount(proID)
 		if er != nil {
-			return ctrl.Result{}, fmt.Errorf("create ronot account error: %w", er)
+			return ctrl.Result{}, fmt.Errorf("create robot account error: %w", er)
 		}
 
 		// Add annotation
@@ -210,6 +214,9 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 	// TODO: add conditions
 	if bd.Status.Status != "ready" {
 		bd.Status.Status = "ready"
+		if bd.Status.Conditions == nil {
+			bd.Status.Conditions = make([]goharborv1alpha1.Condition, 0)
+		}
 		if err := r.Status().Update(ctx, bd, &client.UpdateOptions{}); err != nil {
 			if apierr.IsConflict(err) {
 				log.Error(err, "failed to update status")
