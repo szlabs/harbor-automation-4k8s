@@ -244,6 +244,7 @@ func (r *PullSecretBindingReconciler) update(ctx context.Context, binding *gohar
 func (r *PullSecretBindingReconciler) getConfigData(ctx context.Context, hsc *goharborv1alpha1.HarborServerConfiguration) (*model.HarborServer, error) {
 	s := &model.HarborServer{
 		ServerURL: hsc.Spec.ServerURL,
+		InSecure:  hsc.Spec.InSecure,
 	}
 
 	namespacedName := types.NamespacedName{
