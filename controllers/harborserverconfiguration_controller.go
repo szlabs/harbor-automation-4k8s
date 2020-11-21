@@ -21,10 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/model"
-
 	"github.com/go-logr/logr"
-	httptransport "github.com/go-openapi/runtime/client"
 	corev1 "k8s.io/api/core/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,9 +31,8 @@ import (
 	"sigs.k8s.io/kustomize/kstatus/status"
 
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
-	ghttp "github.com/szlabs/harbor-automation-4k8s/pkg/http"
-	hc "github.com/szlabs/harbor-automation-4k8s/pkg/sdk/harbor/client"
-	"github.com/szlabs/harbor-automation-4k8s/pkg/sdk/harbor/client/products"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/model"
 )
 
 const (
@@ -51,6 +47,7 @@ type HarborServerConfigurationReconciler struct {
 	client.Client
 	Log    logr.Logger
 	Scheme *runtime.Scheme
+	Harbor *legacy.Client
 }
 
 // +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=harborserverconfigurations,verbs=get;list;watch;create;update;patch;delete
@@ -96,6 +93,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	server := &model.HarborServer{
 		AccessCred: cred,
 		ServerURL:  hsc.Spec.ServerURL,
+		InSecure:   hsc.Spec.InSecure,
 	}
 
 	// Check if the configuration is being deleted
@@ -104,8 +102,10 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 		return ctrl.Result{}, nil
 	}
 
+	r.Harbor.WithContext(ctx).WithServer(server)
+
 	// Check server health and update the status of server configuration CR
-	st, cerr := r.checkHealth(ctx, server)
+	st, cerr := r.checkHealth()
 
 	// Update status first for both success and failed checks
 	hsc.Status = st
@@ -144,25 +144,13 @@ func (r *HarborServerConfigurationReconciler) SetupWithManager(mgr ctrl.Manager)
 		Complete(r)
 }
 
-func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, server *model.HarborServer) (goharborv1alpha1.HarborServerConfigurationStatus, error) {
+func (r *HarborServerConfigurationReconciler) checkHealth() (goharborv1alpha1.HarborServerConfigurationStatus, error) {
 	overallStatus := goharborv1alpha1.HarborServerConfigurationStatus{
 		Status:     defaultStatus,
 		Conditions: make([]goharborv1alpha1.Condition, 0),
 	}
 
-	// New client
-	cfg := &hc.TransportConfig{
-		Host:     server.ServerURL,
-		BasePath: hc.DefaultBasePath,
-		Schemes:  hc.DefaultSchemes,
-	}
-
-	params := products.NewGetHealthParamsWithContext(ctx).
-		WithTimeout(30 * time.Second).
-		WithHTTPClient(ghttp.Client)
-	basicAuth := httptransport.BasicAuth(server.AccessCred.AccessKey, server.AccessCred.AccessSecret)
-	hClient := hc.NewHTTPClientWithConfig(nil, cfg)
-	healthPayload, err := hClient.Products.GetHealth(params, basicAuth)
+	healthPayload, err := r.Harbor.CheckHealth()
 	if err != nil {
 		overallStatus.Conditions = append(overallStatus.Conditions, goharborv1alpha1.Condition{
 			Type:    status.ConditionType(defaultComp),
@@ -174,8 +162,8 @@ func (r *HarborServerConfigurationReconciler) checkHealth(ctx context.Context, s
 		return overallStatus, err
 	}
 
-	overallStatus.Status = healthPayload.Payload.Status
-	for _, comp := range healthPayload.Payload.Components {
+	overallStatus.Status = healthPayload.Status
+	for _, comp := range healthPayload.Components {
 		cond := goharborv1alpha1.Condition{
 			Type:   status.ConditionType(comp.Name),
 			Status: corev1.ConditionTrue,

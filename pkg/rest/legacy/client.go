@@ -91,6 +91,19 @@ func (c *Client) WithTimeout(timeout time.Duration) *Client {
 	return c
 }
 
+func (c *Client) CheckHealth() (*models.OverallHealthStatus, error) {
+	params := products.NewGetHealthParamsWithContext(c.context).
+		WithTimeout(c.timeout).
+		WithHTTPClient(c.insecureClient)
+
+	res, err := c.harborClient.Client.Products.GetHealth(params, c.harborClient.Auth)
+	if err != nil {
+		return nil, err
+	}
+
+	return res.Payload, nil
+}
+
 func (c *Client) CreateRobotAccount(projectID int64) (*model.Robot, error) {
 	if projectID <= 0 {
 		return nil, errors.New("invalid project id")

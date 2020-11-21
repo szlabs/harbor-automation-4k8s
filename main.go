@@ -77,6 +77,7 @@ func main() {
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("HarborServerConfiguration"),
 		Scheme: mgr.GetScheme(),
+		Harbor: legacy.New(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HarborServerConfiguration")
 		os.Exit(1)

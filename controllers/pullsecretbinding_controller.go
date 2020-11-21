@@ -87,8 +87,8 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 	}
 
 	// Talk to this server
-	r.HarborV2.WithServer(server)
-	r.Harbor.WithServer(server)
+	r.HarborV2.WithServer(server).WithContext(ctx)
+	r.Harbor.WithServer(server).WithContext(ctx)
 
 	// Check if the binding is being deleted
 	if bd.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -343,9 +343,10 @@ func (r *PullSecretBindingReconciler) getServiceAccount(ctx context.Context, ns,
 }
 
 func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespace string, registry string, robot *model.Robot) (*corev1.Secret, error) {
-	auths := make(secret.Object)
-	reg := fmt.Sprintf("https://%s", registry)
-	auths[reg] = &secret.Auth{
+	auths := &secret.Object{
+		Auths: map[string]*secret.Auth{},
+	}
+	auths.Auths[registry] = &secret.Auth{
 		Username: robot.Name,
 		Password: robot.Token,
 		Email:    fmt.Sprintf("%s@goharbor.io", robot.Name),

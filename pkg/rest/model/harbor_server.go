@@ -51,6 +51,7 @@ func (ac *AccessCred) FillIn(secret *corev1.Secret) error {
 type HarborServer struct {
 	ServerURL  string
 	AccessCred *AccessCred
+	InSecure   bool
 }
 
 // HarborClient keeps Harbor client
@@ -74,6 +75,10 @@ func (h *HarborServer) Client() *HarborClient {
 		Schemes:  hc.DefaultSchemes,
 	}
 
+	if h.InSecure {
+		cfg.Schemes = []string{"http"}
+	}
+
 	c := hc.NewHTTPClientWithConfig(nil, cfg)
 	auth := httptransport.BasicAuth(h.AccessCred.AccessKey, h.AccessCred.AccessSecret)
 
@@ -90,6 +95,10 @@ func (h *HarborServer) ClientV2() *HarborClientV2 {
 		Host:     h.ServerURL,
 		BasePath: hc2.DefaultBasePath,
 		Schemes:  hc2.DefaultSchemes,
+	}
+
+	if h.InSecure {
+		cfg.Schemes = []string{"http"}
 	}
 
 	c := hc2.NewHTTPClientWithConfig(nil, cfg)
