@@ -20,6 +20,9 @@ import (
 	"flag"
 	"os"
 
+	"github.com/szlabs/harbor-automation-4k8s/webhooks/pod"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
 	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
 
 	v2 "github.com/szlabs/harbor-automation-4k8s/pkg/rest/v2"
@@ -100,6 +103,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "PullSecretBinding")
 		os.Exit(1)
 	}
+
+	// Add webhook
+	mgr.GetWebhookServer().Register("/mutate-image-path", &webhook.Admission{
+		Handler: &pod.ImagePathRewriter{
+			Client: mgr.GetClient(),
+			Log:    ctrl.Log.WithName("webhooks").WithName("MutatingImagePath"),
+		}})
 	// +kubebuilder:scaffold:builder
 
 	setupLog.Info("starting manager")
