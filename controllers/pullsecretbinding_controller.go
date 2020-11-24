@@ -82,8 +82,12 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 
 	// Check binding resources
 	server, sa, res, err := r.checkBindingRes(ctx, bd)
-	if server == nil {
-		return res, fmt.Errorf("checking binding error: %w", err)
+	if err != nil {
+		return res, err
+	} else {
+		if server == nil || sa == nil {
+			return res, err
+		}
 	}
 
 	// Talk to this server
