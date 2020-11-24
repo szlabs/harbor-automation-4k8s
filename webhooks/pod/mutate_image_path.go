@@ -64,7 +64,7 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 	}
 
 	// Get namespace of pod
-	podNS, err := ipr.getPodNamespace(ctx, pod.Namespace)
+	podNS, err := ipr.getPodNamespace(ctx, req.Namespace)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("get pod namespace object error: %w", err))
 	}
@@ -155,7 +155,8 @@ func (ipr *ImagePathRewriter) getPodNamespace(ctx context.Context, ns string) (*
 	namespace := &corev1.Namespace{}
 
 	nsName := types.NamespacedName{
-		Name: ns,
+		Namespace: "",
+		Name:      ns,
 	}
 	if err := ipr.Client.Get(ctx, nsName, namespace); err != nil {
 		return nil, fmt.Errorf("get namesapce error: %w", err)
