@@ -63,7 +63,7 @@ type PullSecretBindingReconciler struct {
 // +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=pullsecretbindings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=harborserverconfigurations,verbs=get
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update
-// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;update;patch
 
 func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Result, ferr error) {
 	ctx := context.Background()
