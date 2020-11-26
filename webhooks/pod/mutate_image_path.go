@@ -181,15 +181,14 @@ func (ipr *ImagePathRewriter) getHarborServerConfig(ctx context.Context, ns stri
 
 func (ipr *ImagePathRewriter) getPullSecretBinding(ctx context.Context, ns, issuer, sa string) (*goharborv1alpha1.PullSecretBinding, error) {
 	bindings := &goharborv1alpha1.PullSecretBindingList{}
-	if err := ipr.Client.List(ctx, bindings, client.InNamespace(ns), client.MatchingFields{
-		"spec.harborServerConfig": issuer,
-		"spec.serviceAccount":     sa,
-	}); err != nil {
+	if err := ipr.Client.List(ctx, bindings, client.InNamespace(ns)); err != nil {
 		return nil, fmt.Errorf("get bindings error: %w", err)
 	}
 
-	if len(bindings.Items) > 0 {
-		return &bindings.Items[0], nil
+	for _, bd := range bindings.Items {
+		if bd.Spec.HarborServerConfig == issuer && bd.Spec.ServiceAccount == sa {
+			return bd.DeepCopy(), nil
+		}
 	}
 
 	return nil, fmt.Errorf("no binding with issuer=%s and sa=%s found", issuer, sa)
