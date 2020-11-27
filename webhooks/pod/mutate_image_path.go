@@ -107,12 +107,14 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 					continue
 				}
 
-				if ok {
+				if !ok {
 					changedC := c.DeepCopy()
 					changedC.Image = rewritePath(rewritePathPrefix, c.Image)
 					pod.Spec.Containers[i] = *changedC
 
 					ipr.Log.Info("rewrite image", "original", c.Image, "rewrite", changedC.Image)
+				} else {
+					ipr.Log.Info("skip container image rewriting as registry host is specified", "image", c.Image)
 				}
 			}
 
@@ -123,12 +125,14 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 					continue
 				}
 
-				if ok {
+				if !ok {
 					changedC := c.DeepCopy()
 					changedC.Image = rewritePath(rewritePathPrefix, c.Image)
 					pod.Spec.InitContainers[i] = *changedC
 
 					ipr.Log.Info("rewrite init image", "original", c.Image, "rewrite", changedC.Image)
+				} else {
+					ipr.Log.Info("skip init container image rewriting as registry host is specified", "image", c.Image)
 				}
 			}
 
@@ -136,7 +140,7 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 			if pod.Annotations == nil {
 				pod.Annotations = map[string]string{}
 			}
-			pod.Annotations[annotationImageRewritePath] = "hsc.Spec.ServerURL"
+			pod.Annotations[annotationImageRewritePath] = hsc.Spec.ServerURL
 
 			marshaledPod, err := json.Marshal(pod)
 			if err != nil {
