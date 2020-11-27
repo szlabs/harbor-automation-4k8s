@@ -22,7 +22,7 @@ manager: generate fmt vet
 	go build -o bin/manager main.go
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
-run: generate fmt vet manifests
+run: generate fmt vet manifests dev-certificate
 	go run ./main.go
 
 # Install CRDs into a cluster
@@ -78,6 +78,25 @@ CONTROLLER_GEN=$(GOBIN)/controller-gen
 else
 CONTROLLER_GEN=$(shell which controller-gen)
 endif
+
+# ---------
+# For local development
+TMPDIR ?= /tmp/
+export TMPDIR
+
+.PHONY: dev-certificate
+dev-certificate:
+	$(RM) -r "$(TMPDIR)k8s-webhook-server/serving-certs"
+	mkdir -p "$(TMPDIR)k8s-webhook-server/serving-certs"
+	openssl req \
+		-new \
+		-newkey rsa:4096 \
+		-days 365 \
+		-nodes \
+		-x509 \
+		-subj "/C=FR/O=Dev/OU=$(shell whoami)/CN=example.com" \
+		-keyout "$(TMPDIR)k8s-webhook-server/serving-certs/tls.key" \
+		-out "$(TMPDIR)k8s-webhook-server/serving-certs/tls.crt"
 
 # ---------
 # GENERATE HARBOR CLIENT SDK FROM THE SWAGGER FILE
