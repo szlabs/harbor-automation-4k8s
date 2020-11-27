@@ -69,6 +69,8 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("get pod namespace object error: %w", err))
 	}
 
+	ipr.Log.Info("receive pod request", "pod", pod)
+
 	// If pod image path rewrite flag is set
 	if flag, ok := podNS.Annotations[annotationRewriter]; ok && flag == imageRewriteAuto {
 		// Whether related issuer (HarborServerConfiguration) is set or not
@@ -83,10 +85,14 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 				sa = setSa
 			}
 
+			ipr.Log.Info("get issuer and bound sa", "issuer", hsc, "sa", sa)
+
 			psb, err := ipr.getPullSecretBinding(ctx, pod.Namespace, issuer, sa)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
+
+			ipr.Log.Info("get pullsecretbinding CR", "psb", psb)
 
 			pro, bound := psb.Annotations[annotationProject]
 			if !bound {
