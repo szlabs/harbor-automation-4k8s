@@ -97,14 +97,15 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
-	// Pull secret issuer is set and then check if the required default binding is existing
+	// Pull secret issuer is set and then check if the required default binding exists
 	// Confirm the service account name
+	// Use default SA if not set inside annotation
 	sa := defaultSa
 	if setSa, ok := ns.Annotations[annotationAccount]; ok {
 		sa = setSa
 	}
 
-	// Find it
+	// Find PSB
 	for _, bd := range bindings.Items {
 		if bd.Spec.HarborServerConfig == harborCfg && bd.Spec.ServiceAccount == sa {
 			// Found it and reconcile is done
@@ -112,10 +113,10 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		}
 	}
 
-	// Not existing, create one
+	// PSB doesn't exist, create one
 	defaultBinding := r.getNewBindingCR(ns.Name, harborCfg, sa)
 	if err := controllerutil.SetControllerReference(ns, defaultBinding, r.Scheme); err != nil {
-		return ctrl.Result{}, fmt.Errorf("set crtl reference error: %w", err)
+		return ctrl.Result{}, fmt.Errorf("set ctrl reference error: %w", err)
 	}
 	if err := r.Client.Create(ctx, defaultBinding, &client.CreateOptions{}); err != nil {
 		return ctrl.Result{}, fmt.Errorf("create binding CR error: %w", err)
