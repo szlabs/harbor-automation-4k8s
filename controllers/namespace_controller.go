@@ -27,6 +27,7 @@ import (
 	apierr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -37,7 +38,7 @@ import (
 const (
 	annotationIssuer  = "goharbor.io/secret-issuer"
 	annotationAccount = "goharbor.io/service-account"
-	defaultSa         = "default"
+	defaultSaName     = "default"
 )
 
 // NamespaceReconciler reconciles a Namespace object
@@ -97,25 +98,38 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
-	// Pull secret issuer is set and then check if the required default binding is existing
+	// Pull secret issuer is set and then check if the required default binding exists
 	// Confirm the service account name
-	sa := defaultSa
+	// Use default SA if not set inside annotation
+	saName := defaultSaName
 	if setSa, ok := ns.Annotations[annotationAccount]; ok {
-		sa = setSa
+		// Check if custom service account exist
+		sa := &corev1.ServiceAccount{}
+		saNamespacedName := types.NamespacedName{
+			Namespace: ns.Name,
+			Name:      saName,
+		}
+		if err := r.Client.Get(ctx, saNamespacedName, sa); err != nil {
+			if apierr.IsNotFound(err) {
+				return ctrl.Result{}, fmt.Errorf("service account %s not found in namespace %s: %w", setSa, ns.Name, err)
+			}
+			return ctrl.Result{}, fmt.Errorf("get service account %s in namespace %s error: %w", setSa, ns.Name, err)
+		}
+		saName = setSa
 	}
 
-	// Find it
+	// Find PSB
 	for _, bd := range bindings.Items {
-		if bd.Spec.HarborServerConfig == harborCfg && bd.Spec.ServiceAccount == sa {
+		if bd.Spec.HarborServerConfig == harborCfg && bd.Spec.ServiceAccount == saName {
 			// Found it and reconcile is done
 			return ctrl.Result{}, nil
 		}
 	}
 
-	// Not existing, create one
-	defaultBinding := r.getNewBindingCR(ns.Name, harborCfg, sa)
+	// PSB doesn't exist, create one
+	defaultBinding := r.getNewBindingCR(ns.Name, harborCfg, saName)
 	if err := controllerutil.SetControllerReference(ns, defaultBinding, r.Scheme); err != nil {
-		return ctrl.Result{}, fmt.Errorf("set crtl reference error: %w", err)
+		return ctrl.Result{}, fmt.Errorf("set ctrl reference error: %w", err)
 	}
 	if err := r.Client.Create(ctx, defaultBinding, &client.CreateOptions{}); err != nil {
 		return ctrl.Result{}, fmt.Errorf("create binding CR error: %w", err)
