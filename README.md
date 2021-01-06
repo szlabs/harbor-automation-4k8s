@@ -1,11 +1,19 @@
 # harbor-automation-4k8s
 
-harbor-automation-4k8 provides some features to do [Harbor](https://github.com/goharbor/harbor) Day2 operations in the Kubernetes
-cluster and help to improve the overall Harbor user experiences, including:
+harbor-automation-4k8 provides the following features to help users get better experiences of using [Harbor](https://github.com/goharbor/harbor) 
+or apply some Day2 operations to the Harbor deployed in the Kubernetes cluster:
 
-- pulling secret auto injection
-- image auto rewrite
-- tbd
+-[x] **Mapping k8s namespace and harbor project**: make sure there is a relevant project existing at linked Harbor side for the 
+ specified k8s namespace pulling image from there (bind specified one or create new).
+-[x] **Pulling secret auto injection**: auto create robot account in the corresponding Harbor project and bind it to the 
+ related service account of the related k8s namespace to avoid explicitly specifying image pulling secret in the 
+ deployment manifest yaml. 
+-[x] **image path auto rewriting**: rewrite the pulling path of the matched workload images (e.g: no full repository path specified) 
+ being deployed in the specified k8s namespace to the corresponding project at the linked Harbor.
+-[x] **transparent proxy cache**: rewrite the pulling path of the matched workload images to the proxy cache project of the linked Harbor.
+-[ ] apply configuration changes: update the system configurations of the linked Harbor with Kubernetes way by providing a configMap.
+-[ ] certificate population: populate the CA of the linked Harbor instance to the container runtimes of all the cluster workers and let workers trust it to avoid image pulling issues.
+-[ ] TBD
 
 ## Overall Design
 
@@ -13,8 +21,8 @@ The diagram below shows the overall design of this project:
 
 ![overall design](./docs/assets/4k8s-automation.png)
 
-* The Harbor server access info can be kept in a cluster scoped Kubernetes CR named `HarborServerConfiguration` by providing the access
-host and access key and secret (key and secret should be wrapped into a kubernetes secret) for future referring.
+* A cluster scoped Kubernetes CR named `HarborServerConfiguration` is designed to keep the Harbor server access info by providing the access
+host and access key & secret (key and secret should be wrapped into a kubernetes secret) for future referring.
 * For enabling the pulling secret injection in a Kubernetes namespace:
   - add annotation `goharbor.io/secret-issuer:[harborserverconfiguration_cr_name]` to the namespace. `harborserverconfiguration_cr_name` 
   is the name of the CR `HarborServerConfiguration` that includes the Harbor server info.
@@ -62,13 +70,13 @@ make docker-build && make docker-push
 make deploy
 ```
 
-1. Check the status of the operator
+2. Check the status of the operator
 
 ```
 kubectl get all -n harbor-automation-4k8s-system
 ```
 
-1. Uninstall the operator 
+3. Uninstall the operator 
 
 ```shell script
 kustomize build config/default | kubectl delete -f -
