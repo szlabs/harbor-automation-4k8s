@@ -3,17 +3,17 @@
 harbor-automation-4k8 provides the following features to help users get better experiences of using [Harbor](https://github.com/goharbor/harbor) 
 or apply some Day2 operations to the Harbor deployed in the Kubernetes cluster:
 
--[x] **Mapping k8s namespace and harbor project**: make sure there is a relevant project existing at linked Harbor side for the 
+- [x] **Mapping k8s namespace and harbor project**: make sure there is a relevant project existing at linked Harbor side for the 
  specified k8s namespace pulling image from there (bind specified one or create new).
--[x] **Pulling secret auto injection**: auto create robot account in the corresponding Harbor project and bind it to the 
+- [x] **Pulling secret auto injection**: auto create robot account in the corresponding Harbor project and bind it to the 
  related service account of the related k8s namespace to avoid explicitly specifying image pulling secret in the 
  deployment manifest yaml. 
--[x] **image path auto rewriting**: rewrite the pulling path of the matched workload images (e.g: no full repository path specified) 
+ - [x] **image path auto rewriting**: rewrite the pulling path of the matched workload images (e.g: no full repository path specified) 
  being deployed in the specified k8s namespace to the corresponding project at the linked Harbor.
--[x] **transparent proxy cache**: rewrite the pulling path of the matched workload images to the proxy cache project of the linked Harbor.
--[ ] apply configuration changes: update the system configurations of the linked Harbor with Kubernetes way by providing a configMap.
--[ ] certificate population: populate the CA of the linked Harbor instance to the container runtimes of all the cluster workers and let workers trust it to avoid image pulling issues.
--[ ] TBD
+- [x] **transparent proxy cache**: rewrite the pulling path of the matched workload images to the proxy cache project of the linked Harbor.
+- [ ] apply configuration changes: update the system configurations of the linked Harbor with Kubernetes way by providing a configMap.
+- [ ] certificate population: populate the CA of the linked Harbor instance to the container runtimes of all the cluster workers and let workers trust it to avoid image pulling issues.
+- [ ] TBD
 
 ## Overall Design
 
