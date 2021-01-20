@@ -35,6 +35,7 @@ type AccessCred struct {
 	AccessSecret string
 }
 
+// FillIn put secret into AccessCred
 func (ac *AccessCred) FillIn(secret *corev1.Secret) error {
 	decodedAK, ok1 := secret.Data[accessKey]
 	decodedAS, ok2 := secret.Data[accessSecret]
@@ -47,11 +48,28 @@ func (ac *AccessCred) FillIn(secret *corev1.Secret) error {
 	return nil
 }
 
+// Validate validates wether the key and secret has correct format
+func (ac *AccessCred) Validate(secret *corev1.Secret) error {
+	if len(ac.AccessKey) == 0 || len(ac.AccessSecret) == 0 {
+		return errors.New("access key and secret can't be empty")
+	}
+	return nil
+}
+
 // HarborServer contains connection data
 type HarborServer struct {
 	ServerURL  string
 	AccessCred *AccessCred
 	InSecure   bool
+}
+
+// NewHarborServer returns harbor server with inputs
+func NewHarborServer(serverURL string, accessCred *AccessCred, insecure bool) *HarborServer {
+	return &HarborServer{
+		ServerURL:  serverURL,
+		AccessCred: accessCred,
+		InSecure:   insecure,
+	}
 }
 
 // HarborClient keeps Harbor client

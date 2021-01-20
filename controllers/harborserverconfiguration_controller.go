@@ -68,8 +68,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 			return ctrl.Result{}, nil
 		}
 
-		// Reconcile error
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("get HarborServerConfiguraiton error: %w", err)
 	}
 
 	// Check if the server configuration is valid.
@@ -82,19 +81,16 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 
 	if err := r.Client.Get(ctx, secretNSedName, accessSecret); err != nil {
 		// No matter what errors (including not found) occurred, the server configuration is invalid
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("get access secret error: %w", err)
 	}
 
+	// put secrets into AccessCred
 	cred := &model.AccessCred{}
 	if err := cred.FillIn(accessSecret); err != nil {
 		return ctrl.Result{}, fmt.Errorf("fill in secret error: %w", err)
 	}
 
-	server := &model.HarborServer{
-		AccessCred: cred,
-		ServerURL:  hsc.Spec.ServerURL,
-		InSecure:   hsc.Spec.InSecure,
-	}
+	server := model.NewHarborServer(hsc.Spec.ServerURL, cred, hsc.Spec.InSecure)
 
 	// Check if the configuration is being deleted
 	if !hsc.ObjectMeta.DeletionTimestamp.IsZero() {
