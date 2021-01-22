@@ -19,12 +19,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
-	"strings"
-
-	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
 
 	"github.com/go-logr/logr"
+	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,8 +38,6 @@ const (
 	annotationRewriter         = "goharbor.io/image-rewrite"
 	imageRewriteAuto           = "auto"
 	annotationImageRewritePath = "goharbor.io/rewrite-image"
-
-	regexpDNSPattern = `^([a-zA-Z0-9-_]+\.)*[a-zA-Z0-9][a-zA-Z0-9-_]+\.[a-zA-Z]{2,11}|(([01]?\d{1,2}|2[0-4]\d|25[0-5])\.){3}([01]?\d{1,2}|2[0-4]\d|25[0-5])$`
 )
 
 // +kubebuilder:webhook:path=/mutate-image-path,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create;update,versions=v1,name=mimg.kb.io
@@ -101,15 +96,16 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 
 			rewritePathPrefix := fmt.Sprintf("%s/%s", hsc.Spec.ServerURL, pro)
 			for i, c := range pod.Spec.Containers {
-				ok, err := hasHostDomainPrefix(c.Image)
+				registry, err := registryFromImageRef(c.Image)
 				if err != nil {
-					ipr.Log.Error(err, "check host domain", "image", c.Image)
-					continue
-				}
-
-				if !ok {
+					ipr.Log.Error(err, "invalid container image format", "image", c.Image)
+				} else if registry == BareRegistry {
 					changedC := c.DeepCopy()
-					changedC.Image = rewritePath(rewritePathPrefix, c.Image)
+					changedC.Image, err = replaceRegistryInImageRef(rewritePathPrefix, c.Image)
+					if err != nil {
+						ipr.Log.Error(err, "invalid container rewrite format", "path", rewritePathPrefix)
+						continue
+					}
 					pod.Spec.Containers[i] = *changedC
 
 					ipr.Log.Info("rewrite image", "original", c.Image, "rewrite", changedC.Image)
@@ -119,15 +115,16 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 			}
 
 			for i, c := range pod.Spec.InitContainers {
-				ok, err := hasHostDomainPrefix(c.Image)
+				registry, err := registryFromImageRef(c.Image)
 				if err != nil {
-					ipr.Log.Error(err, "check host domain", "init_image", c.Image)
-					continue
-				}
-
-				if !ok {
+					ipr.Log.Error(err, "invalid container image format", "image", c.Image)
+				} else if registry == BareRegistry {
 					changedC := c.DeepCopy()
-					changedC.Image = rewritePath(rewritePathPrefix, c.Image)
+					changedC.Image, err = replaceRegistryInImageRef(rewritePathPrefix, c.Image)
+					if err != nil {
+						ipr.Log.Error(err, "invalid container rewrite format", "path", rewritePathPrefix)
+						continue
+					}
 					pod.Spec.InitContainers[i] = *changedC
 
 					ipr.Log.Info("rewrite init image", "original", c.Image, "rewrite", changedC.Image)
@@ -202,29 +199,4 @@ func (ipr *ImagePathRewriter) getPullSecretBinding(ctx context.Context, ns, issu
 	}
 
 	return nil, fmt.Errorf("no binding with issuer=%s and sa=%s found", issuer, sa)
-}
-
-func rewritePath(rewritePathPrefix, originalPath string) string {
-	repo := originalPath
-	if i := strings.LastIndex(originalPath, "/"); i != -1 {
-		repo = originalPath[i+1:]
-	}
-
-	return fmt.Sprintf("%s/%s", rewritePathPrefix, repo)
-}
-
-func hasHostDomainPrefix(originalPath string) (bool, error) {
-	i := strings.Index(originalPath, "/")
-	if i == -1 {
-		return false, nil
-	}
-
-	possibleDomain := originalPath[:i]
-	exp, err := regexp.Compile(regexpDNSPattern)
-	if err != nil {
-		// ignore
-		return true, err
-	}
-
-	return exp.MatchString(possibleDomain), nil
 }
