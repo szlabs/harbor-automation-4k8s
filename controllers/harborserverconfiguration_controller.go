@@ -73,24 +73,11 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 
 	// Check if the server configuration is valid.
 	// That is checking if the admin password secret object is valid.
-	accessSecret := &corev1.Secret{}
-	secretNSedName := types.NamespacedName{
-		Namespace: hsc.Spec.AccessCredential.Namespace,
-		Name:      hsc.Spec.AccessCredential.AccessSecretRef,
+	// Create harbor client
+	err := r.createHarborClient(ctx, hsc)
+	if err != nil {
+		return ctrl.Result{}, nil
 	}
-
-	if err := r.Client.Get(ctx, secretNSedName, accessSecret); err != nil {
-		// No matter what errors (including not found) occurred, the server configuration is invalid
-		return ctrl.Result{}, fmt.Errorf("get access secret error: %w", err)
-	}
-
-	// put secrets into AccessCred
-	cred := &model.AccessCred{}
-	if err := cred.FillIn(accessSecret); err != nil {
-		return ctrl.Result{}, fmt.Errorf("fill in secret error: %w", err)
-	}
-
-	server := model.NewHarborServer(hsc.Spec.ServerURL, cred, hsc.Spec.InSecure)
 
 	// Check if the configuration is being deleted
 	if !hsc.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -98,10 +85,8 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	r.Harbor.WithContext(ctx).WithServer(server)
-
-	// Check server health and update the status of server configuration CR
-	st, cerr := r.checkHealth()
+	// Check server health and construct status
+	st, cerr := r.checkServerHealth()
 
 	// Update status first for both success and failed checks
 	hsc.Status = st
@@ -116,6 +101,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 		}
 
 		if apierr.IsConflict(err) {
+			// if it's conflict, requeue
 			r.Log.Error(err, "failed to update status")
 			return res, nil
 		}
@@ -140,7 +126,7 @@ func (r *HarborServerConfigurationReconciler) SetupWithManager(mgr ctrl.Manager)
 		Complete(r)
 }
 
-func (r *HarborServerConfigurationReconciler) checkHealth() (goharborv1alpha1.HarborServerConfigurationStatus, error) {
+func (r *HarborServerConfigurationReconciler) checkServerHealth() (goharborv1alpha1.HarborServerConfigurationStatus, error) {
 	overallStatus := goharborv1alpha1.HarborServerConfigurationStatus{
 		Status:     defaultStatus,
 		Conditions: make([]goharborv1alpha1.Condition, 0),
@@ -175,4 +161,38 @@ func (r *HarborServerConfigurationReconciler) checkHealth() (goharborv1alpha1.Ha
 	}
 
 	return overallStatus, nil
+}
+
+func (r *HarborServerConfigurationReconciler) createHarborClient(ctx context.Context, hsc *goharborv1alpha1.HarborServerConfiguration) error {
+	// contruct accessCreds from Secret
+	cred, err := r.createAccessCredsFromSecret(ctx, hsc)
+	if err != nil {
+		return err
+	}
+	// put server config into client
+	server := model.NewHarborServer(hsc.Spec.ServerURL, cred, hsc.Spec.InSecure)
+	r.Harbor.WithContext(ctx).WithServer(server)
+
+	return nil
+}
+
+func (r *HarborServerConfigurationReconciler) createAccessCredsFromSecret(ctx context.Context, hsc *goharborv1alpha1.HarborServerConfiguration) (*model.AccessCred, error) {
+	accessSecret := &corev1.Secret{}
+	secretNSedName := types.NamespacedName{
+		Namespace: hsc.Spec.AccessCredential.Namespace,
+		Name:      hsc.Spec.AccessCredential.AccessSecretRef,
+	}
+
+	if err := r.Client.Get(ctx, secretNSedName, accessSecret); err != nil {
+		// No matter what errors (including not found) occurred, the server configuration is invalid
+		return nil, fmt.Errorf("get access secret error: %w", err)
+	}
+
+	// convert secrets to AccessCred
+	cred := &model.AccessCred{}
+	if err := cred.FillIn(accessSecret); err != nil {
+		return nil, fmt.Errorf("fill in secret error: %w", err)
+	}
+
+	return cred, nil
 }
