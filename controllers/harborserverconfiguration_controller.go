@@ -71,6 +71,8 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 		return ctrl.Result{}, fmt.Errorf("get HarborServerConfiguraiton error: %w", err)
 	}
 
+	// Check if the server configuration is valid.
+	// That is checking if the admin password secret object is valid.
 	// Create harbor client
 	err := r.createHarborClient(ctx, hsc)
 	if err != nil {
@@ -78,7 +80,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	}
 
 	// Check if the configuration is being deleted
-	if hsc.ObjectMeta.DeletionTimestamp != nil {
+	if !hsc.ObjectMeta.DeletionTimestamp.IsZero() {
 		log.Info("Harbor server configuration is being deleted")
 		return ctrl.Result{}, nil
 	}
@@ -89,8 +91,22 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	// Update status first for both success and failed checks
 	hsc.Status = st
 	if err := r.Client.Status().Update(ctx, hsc); err != nil {
-		// requeue if there is error
-		return r.requeueWithError(err)
+		res := ctrl.Result{
+			Requeue: true,
+		}
+
+		sec, wait := apierr.SuggestsClientDelay(err)
+		if wait {
+			res.RequeueAfter = time.Second * time.Duration(sec)
+		}
+
+		if apierr.IsConflict(err) {
+			// if it's conflict, requeue
+			r.Log.Error(err, "failed to update status")
+			return res, nil
+		}
+
+		return res, fmt.Errorf("failed to update status with error: %w", err)
 	}
 
 	if cerr != nil {
@@ -147,8 +163,6 @@ func (r *HarborServerConfigurationReconciler) checkServerHealth() (goharborv1alp
 	return overallStatus, nil
 }
 
-// Check if the server configuration is valid.
-// That is checking if the admin password secret object is valid.
 func (r *HarborServerConfigurationReconciler) createHarborClient(ctx context.Context, hsc *goharborv1alpha1.HarborServerConfiguration) error {
 	// contruct accessCreds from Secret
 	cred, err := r.createAccessCredsFromSecret(ctx, hsc)
@@ -181,22 +195,4 @@ func (r *HarborServerConfigurationReconciler) createAccessCredsFromSecret(ctx co
 	}
 
 	return cred, nil
-}
-
-func (r *HarborServerConfigurationReconciler) requeueWithError(err error) (ctrl.Result, error) {
-	res := ctrl.Result{
-		Requeue: true,
-	}
-
-	sec, wait := apierr.SuggestsClientDelay(err)
-	if wait {
-		res.RequeueAfter = time.Second * time.Duration(sec)
-	}
-
-	if apierr.IsConflict(err) {
-		r.Log.Error(err, "failed to update status")
-		return res, nil
-	}
-
-	return res, fmt.Errorf("failed to update status with error: %w", err)
 }
