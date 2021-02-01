@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
+    ## this is for avoiding being checked by webhook
+    harbor-day2-webhook-configuration: disabled
   name: system
 ---
 apiVersion: apps/v1
