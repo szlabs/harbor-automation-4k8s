@@ -3,6 +3,7 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
+    harbor-day2-webhook-configuration: disabled
   name: system
 ---
 apiVersion: apps/v1
