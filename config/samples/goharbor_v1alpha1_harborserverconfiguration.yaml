@@ -18,3 +18,4 @@ spec:
     namespace: kube-system
     accessSecretRef: mysecret
   version: 2.1.0
+  default: false

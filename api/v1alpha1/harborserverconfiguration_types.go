@@ -38,6 +38,11 @@ type HarborServerConfigurationSpec struct {
 	// +kubebuilder:validation:Optional
 	InSecure bool `json:"inSecure,omitempty"`
 
+	// Default indicates the harbor configuration manages namespaces that omit the goharbor.io/secret-issuer annotation.
+	// At most, one HarborServerConfiguration can be the default, multiple defaults will be rejected.
+	// +kubebuilder:validation:Required
+	Default bool `json:"default"`
+
 	// +kubebuilder:validation:Required
 	AccessCredential *AccessCredential `json:"accessCredential"`
 

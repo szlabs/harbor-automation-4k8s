@@ -70,6 +70,8 @@ spec:
               - accessSecretRef
               - namespace
               type: object
+            default:
+              type: boolean
             inSecure:
               description: Indicate if the Harbor server is an insecure registry
               type: boolean
@@ -82,6 +84,7 @@ spec:
               type: string
           required:
           - accessCredential
+          - default
           - serverURL
           - version
           type: object
