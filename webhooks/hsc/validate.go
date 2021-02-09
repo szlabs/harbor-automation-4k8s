@@ -14,16 +14,16 @@ import (
 )
 
 // +kubebuilder:webhook:path=/validate-hsc,mutating=false,failurePolicy=fail,groups="goharbor.goharbor.io",resources=harborserverconfigurations,verbs=create;update,versions=v1alpha1,name=hsc.goharbor.io
-type HSCValidator struct {
+type Validator struct {
 	Client  client.Client
 	Log     logr.Logger
 	decoder *admission.Decoder
 }
 
-var _ admission.Handler = (*HSCValidator)(nil)
-var _ admission.DecoderInjector = (*HSCValidator)(nil)
+var _ admission.Handler = (*Validator)(nil)
+var _ admission.DecoderInjector = (*Validator)(nil)
 
-func (h *HSCValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
+func (h *Validator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	hsc := &goharborv1alpha1.HarborServerConfiguration{}
 
 	err := h.decoder.Decode(req, hsc)
@@ -45,11 +45,11 @@ func (h *HSCValidator) Handle(ctx context.Context, req admission.Request) admiss
 	return admission.Allowed("")
 }
 
-func (h *HSCValidator) InjectDecoder(decoder *admission.Decoder) error {
+func (h *Validator) InjectDecoder(decoder *admission.Decoder) error {
 	h.decoder = decoder
 	return nil
 }
 
-func (h *HSCValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func (h *Validator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&goharborv1alpha1.HarborServerConfiguration{}).Complete()
 }

@@ -71,10 +71,25 @@ spec:
               - namespace
               type: object
             default:
+              description: Default indicates the harbor configuration manages namespaces
+                that omit the goharbor.io/secret-issuer annotation. At most, one HarborServerConfiguration
+                can be the default, multiple defaults will be rejected.
               type: boolean
             inSecure:
               description: Indicate if the Harbor server is an insecure registry
               type: boolean
+            rules:
+              items:
+                properties:
+                  project:
+                    type: string
+                  registry:
+                    type: string
+                required:
+                - project
+                - registry
+                type: object
+              type: array
             serverURL:
               pattern: (?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)+([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])
               type: string

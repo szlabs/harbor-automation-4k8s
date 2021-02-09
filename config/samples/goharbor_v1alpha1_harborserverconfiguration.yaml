@@ -5,8 +5,8 @@ metadata:
   namespace: kube-system
 type: Opaque
 data:
-  username: YWRtaW4=
-  password: SGFyYm9yMTIzNDU=
+  accessKey: YWRtaW4=
+  accessSecret: SGFyYm9yMTIzNDU=
 ---
 apiVersion: goharbor.goharbor.io/v1alpha1
 kind: HarborServerConfiguration
@@ -19,3 +19,18 @@ spec:
     accessSecretRef: mysecret
   version: 2.1.0
   default: false
+---
+apiVersion: goharbor.goharbor.io/v1alpha1
+kind: HarborServerConfiguration
+metadata:
+  name: harborserverconfiguration-default
+spec:
+  serverURL: goharbor.io
+  accessCredential:
+    namespace: kube-system
+    accessSecretRef: mysecret
+  version: 2.1.0
+  default: true
+  rules:
+    - registry: docker.io
+      project: dockerhub-proxy-cache

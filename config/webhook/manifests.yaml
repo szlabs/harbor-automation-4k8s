@@ -24,3 +24,8 @@ webhooks:
     - UPDATE
     resources:
     - pods
+  objectSelector:
+    matchExpressions:
+      - key: "goharbor.io/automation"
+        operator: NotIn
+        values: ["disabled"]

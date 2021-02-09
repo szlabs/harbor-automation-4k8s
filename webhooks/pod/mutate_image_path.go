@@ -35,9 +35,9 @@ const (
 	defaultSa         = "default"
 	annotationProject = "goharbor.io/project"
 
-	annotationRewriter         = "goharbor.io/image-rewrite"
-	imageRewriteAuto           = "auto"
-	annotationImageRewritePath = "goharbor.io/rewrite-image"
+	annotationRewriter   = "goharbor.io/image-rewrite"
+	imageRewriteAuto     = "auto"
+	imageRewriteDisabled = "disabled"
 )
 
 // +kubebuilder:webhook:path=/mutate-image-path,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create;update,versions=v1,name=mimg.kb.io
@@ -64,25 +64,39 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("get pod namespace object error: %w", err))
 	}
 
-	ipr.Log.Info("receive pod request", "pod", pod)
+	ipr.Log.V(4).Info("receive pod request", "pod", pod)
 
+	flag, flagPresent := podNS.Annotations[annotationRewriter]
+	if flag == imageRewriteDisabled {
+		return admission.Allowed("image rewriting disabled")
+	}
+	// If the rewrite annotation is not set, fallback to default hsc handling
+	if !flagPresent {
+		defaultHSC, err := ipr.lookupDefaultHarborServerConfig(ctx)
+		if err != nil {
+			return admission.Errored(http.StatusInternalServerError, fmt.Errorf("get default hsc object error: %w", err))
+		}
+		if defaultHSC == nil {
+			return admission.Allowed("no default harbor server configuration")
+		}
+
+		return ipr.rewriteContainers(req, defaultHSC.Spec.ServerURL, defaultHSC.Spec.Rules, pod)
+	}
 	// If pod image path rewrite flag is set
-	if flag, ok := podNS.Annotations[annotationRewriter]; ok && flag == imageRewriteAuto {
+	if flag == imageRewriteAuto {
 		// Whether related issuer (HarborServerConfiguration) is set or not
 		if issuer, yes := podNS.Annotations[annotationIssuer]; yes {
 			hsc, err := ipr.getHarborServerConfig(ctx, pod.Namespace, issuer)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
-
 			sa := defaultSa
 			if setSa, exists := podNS.Annotations[annotationAccount]; exists {
 				sa = setSa
 			}
 
-			ipr.Log.Info("get issuer and bound sa", "issuer", hsc, "sa", sa)
-
-			psb, err := ipr.getPullSecretBinding(ctx, pod.Namespace, issuer, sa)
+			ipr.Log.Info("get issuer and bound sa", "issuer", hsc.Name, "sa", sa)
+			psb, err := ipr.getPullSecretBinding(ctx, pod.Namespace, hsc.Name, sa)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
@@ -93,62 +107,67 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 			if !bound {
 				return admission.Errored(http.StatusInternalServerError, fmt.Errorf("%s of binding %s is empty", annotationProject, psb.Name))
 			}
-
-			rewritePathPrefix := fmt.Sprintf("%s/%s", hsc.Spec.ServerURL, pro)
-			for i, c := range pod.Spec.Containers {
-				registry, err := registryFromImageRef(c.Image)
-				if err != nil {
-					ipr.Log.Error(err, "invalid container image format", "image", c.Image)
-				} else if registry == BareRegistry {
-					changedC := c.DeepCopy()
-					changedC.Image, err = replaceRegistryInImageRef(rewritePathPrefix, c.Image)
-					if err != nil {
-						ipr.Log.Error(err, "invalid container rewrite format", "path", rewritePathPrefix)
-						continue
-					}
-					pod.Spec.Containers[i] = *changedC
-
-					ipr.Log.Info("rewrite image", "original", c.Image, "rewrite", changedC.Image)
-				} else {
-					ipr.Log.Info("skip container image rewriting as registry host is specified", "image", c.Image)
-				}
+			imageRules := []goharborv1alpha1.ImageRule{
+				{
+					Registry:      BareRegistry,
+					HarborProject: pro,
+				},
 			}
-
-			for i, c := range pod.Spec.InitContainers {
-				registry, err := registryFromImageRef(c.Image)
-				if err != nil {
-					ipr.Log.Error(err, "invalid container image format", "image", c.Image)
-				} else if registry == BareRegistry {
-					changedC := c.DeepCopy()
-					changedC.Image, err = replaceRegistryInImageRef(rewritePathPrefix, c.Image)
-					if err != nil {
-						ipr.Log.Error(err, "invalid container rewrite format", "path", rewritePathPrefix)
-						continue
-					}
-					pod.Spec.InitContainers[i] = *changedC
-
-					ipr.Log.Info("rewrite init image", "original", c.Image, "rewrite", changedC.Image)
-				} else {
-					ipr.Log.Info("skip init container image rewriting as registry host is specified", "image", c.Image)
-				}
-			}
-
-			// Add annotation to mark the rewrite action
-			if pod.Annotations == nil {
-				pod.Annotations = map[string]string{}
-			}
-			pod.Annotations[annotationImageRewritePath] = hsc.Spec.ServerURL
-
-			marshaledPod, err := json.Marshal(pod)
-			if err != nil {
-				return admission.Errored(http.StatusInternalServerError, err)
-			}
-
-			return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+			return ipr.rewriteContainers(req, hsc.Spec.ServerURL, imageRules, pod)
 		}
 	}
 
 	return admission.Allowed("no change")
+}
+
+func (ipr *ImagePathRewriter) rewriteContainers(req admission.Request, serverURL string, rules []goharborv1alpha1.ImageRule, pod *corev1.Pod) admission.Response {
+	for i, c := range pod.Spec.Containers {
+		rewrittenImage, err := rewriteContainer(c.Image, serverURL, rules)
+		if err != nil {
+			ipr.Log.Error(err, "invalid container image format", "image", c.Image)
+			continue
+		}
+		if rewrittenImage != "" {
+			rewrittenContainer := c.DeepCopy()
+			rewrittenContainer.Image = rewrittenImage
+			pod.Spec.Containers[i] = *rewrittenContainer
+			ipr.Log.Info("rewrite container image", "original", c.Image, "rewrite", rewrittenImage)
+		}
+	}
+
+	for i, c := range pod.Spec.InitContainers {
+		rewrittenImage, err := rewriteContainer(c.Image, serverURL, rules)
+		if err != nil {
+			ipr.Log.Error(err, "invalid container image format", "image", c.Image)
+			continue
+		}
+		if rewrittenImage != "" {
+			rewrittenContainer := c.DeepCopy()
+			rewrittenContainer.Image = rewrittenImage
+			pod.Spec.InitContainers[i] = *rewrittenContainer
+			ipr.Log.Info("rewrite init image", "original", c.Image, "rewrite", rewrittenImage)
+		}
+	}
+
+	marshaledPod, err := json.Marshal(pod)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+}
+
+func (ipr *ImagePathRewriter) lookupDefaultHarborServerConfig(ctx context.Context) (*goharborv1alpha1.HarborServerConfiguration, error) {
+	hscList := &goharborv1alpha1.HarborServerConfigurationList{}
+	if err := ipr.Client.List(ctx, hscList); err != nil {
+		return nil, err
+	}
+	for _, hsc := range hscList.Items {
+		if hsc.Spec.Default {
+			return &hsc, nil
+		}
+	}
+	return nil, nil
 }
 
 // A decoder will be automatically injected.

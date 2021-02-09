@@ -50,6 +50,16 @@ type HarborServerConfigurationSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern="(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?"
 	Version string `json:"version"`
+
+	// +kubebuilder:validation:Optional
+	Rules []ImageRule `json:"rules"`
+}
+
+type ImageRule struct {
+	// +kubebuilder:validation:Required
+	Registry string `json:"registry"`
+	// +kubebuilder:validation:Required
+	HarborProject string `json:"project"`
 }
 
 // AccessCredential is a namespaced credential to keep the access key and secret for the harbor server configuration
