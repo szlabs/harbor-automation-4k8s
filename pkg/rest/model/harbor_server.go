@@ -93,10 +93,6 @@ func (h *HarborServer) Client() *HarborClient {
 		Schemes:  hc.DefaultSchemes,
 	}
 
-	if h.InSecure {
-		cfg.Schemes = []string{"http"}
-	}
-
 	c := hc.NewHTTPClientWithConfig(nil, cfg)
 	auth := httptransport.BasicAuth(h.AccessCred.AccessKey, h.AccessCred.AccessSecret)
 
@@ -106,7 +102,7 @@ func (h *HarborServer) Client() *HarborClient {
 	}
 }
 
-// Client created based on the server data
+// ClientV2 created based on the server data. Harbor V2 API
 func (h *HarborServer) ClientV2() *HarborClientV2 {
 	// New client
 	cfg := &hc2.TransportConfig{

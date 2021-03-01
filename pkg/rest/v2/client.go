@@ -115,7 +115,7 @@ func (c *Client) EnsureProject(name string) (int64, error) {
 		})
 	cp, err := c.harborClient.Client.Project.CreateProject(cparams, c.harborClient.Auth)
 	if err != nil {
-		return -1, fmt.Errorf("ensure proejct error: %w", err)
+		return -1, fmt.Errorf("ensure project error: %w", err)
 	}
 
 	return utils.ExtractID(cp.Location)
@@ -142,7 +142,7 @@ func (c *Client) GetProject(name string) (*v2models.Project, error) {
 	}
 
 	if len(res.Payload) < 1 {
-		return nil, fmt.Errorf("no project with name %s exitsing", name)
+		return nil, fmt.Errorf("no project with name %s exists", name)
 	}
 
 	return res.Payload[0], nil

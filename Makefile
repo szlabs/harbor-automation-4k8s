@@ -43,7 +43,7 @@ deploy: manifests cert-manager
 	kustomize build config/default | kubectl apply -f -
 
 cert-manager:
-    kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
+	kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
 	kubectl rollout status deployment cert-manager-webhook -n cert-manager
 	kubectl rollout status deployment cert-manager -n cert-manager
 	kubectl rollout status deployment cert-manager-cainjector -n cert-manager

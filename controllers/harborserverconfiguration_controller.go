@@ -58,6 +58,7 @@ type HarborServerConfigurationReconciler struct {
 func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
 	log := r.Log.WithValues("harborserverconfiguration", req.NamespacedName)
+	log.Info("Starting HarborServerConfiguration Reconciler")
 
 	// Get the configuration first
 	hsc := &goharborv1alpha1.HarborServerConfiguration{}
@@ -74,6 +75,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	// Create harbor client
 	err := r.createHarborClient(ctx, hsc)
 	if err != nil {
+		log.Error(err, "failed to create harbor client")
 		return ctrl.Result{}, nil
 	}
 
@@ -118,6 +120,7 @@ func (r *HarborServerConfigurationReconciler) checkServerHealth() (goharborv1alp
 
 	healthPayload, err := r.Harbor.CheckHealth()
 	if err != nil {
+		r.Log.Error(err, "check harbor server health failed.")
 		overallStatus.Conditions = append(overallStatus.Conditions, goharborv1alpha1.Condition{
 			Type:    status.ConditionType(defaultComp),
 			Status:  corev1.ConditionFalse,
@@ -136,6 +139,7 @@ func (r *HarborServerConfigurationReconciler) checkServerHealth() (goharborv1alp
 		}
 
 		if len(comp.Error) > 0 {
+			r.Log.Info("error in payload when check harbor server health.")
 			cond.Status = corev1.ConditionFalse
 			cond.Reason = comp.Error
 			cond.Message = "An error occurred"
