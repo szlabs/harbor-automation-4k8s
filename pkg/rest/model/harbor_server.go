@@ -111,10 +111,6 @@ func (h *HarborServer) ClientV2() *HarborClientV2 {
 		Schemes:  hc2.DefaultSchemes,
 	}
 
-	if h.InSecure {
-		cfg.Schemes = []string{"http"}
-	}
-
 	c := hc2.NewHTTPClientWithConfig(nil, cfg)
 	auth := httptransport.BasicAuth(h.AccessCred.AccessKey, h.AccessCred.AccessSecret)
 
