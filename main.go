@@ -32,6 +32,7 @@ import (
 	"github.com/szlabs/harbor-automation-4k8s/controllers"
 	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
 	v2 "github.com/szlabs/harbor-automation-4k8s/pkg/rest/v2"
+	"github.com/szlabs/harbor-automation-4k8s/webhooks/hsc"
 	"github.com/szlabs/harbor-automation-4k8s/webhooks/pod"
 	// +kubebuilder:scaffold:imports
 )
@@ -105,6 +106,11 @@ func main() {
 		Handler: &pod.ImagePathRewriter{
 			Client: mgr.GetClient(),
 			Log:    ctrl.Log.WithName("webhooks").WithName("MutatingImagePath"),
+		}})
+	mgr.GetWebhookServer().Register("/validate-hsc", &webhook.Admission{
+		Handler: &hsc.Validator{
+			Client: mgr.GetClient(),
+			Log:    ctrl.Log.WithName("webhooks").WithName("HarborServerConfigurationValidator"),
 		}})
 	// +kubebuilder:scaffold:builder
 
