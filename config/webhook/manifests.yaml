@@ -24,8 +24,29 @@ webhooks:
     - UPDATE
     resources:
     - pods
-  objectSelector:
-    matchExpressions:
-      - key: "goharbor.io/automation"
-        operator: NotIn
-        values: ["disabled"]
+
+---
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: ValidatingWebhookConfiguration
+metadata:
+  creationTimestamp: null
+  name: validating-webhook-configuration
+webhooks:
+- clientConfig:
+    caBundle: Cg==
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-hsc
+  failurePolicy: Fail
+  name: hsc.goharbor.io
+  rules:
+  - apiGroups:
+    - goharbor.goharbor.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - harborserverconfigurations

@@ -13,6 +13,8 @@ import (
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
 )
 
+// +kubebuilder:webhook:path=/validate-hsc,mutating=false,failurePolicy=fail,groups="goharbor.goharbor.io",resources=harborserverconfigurations,verbs=create;update,versions=v1alpha1,name=hsc.goharbor.io
+
 type Validator struct {
 	Client  client.Client
 	Log     logr.Logger
