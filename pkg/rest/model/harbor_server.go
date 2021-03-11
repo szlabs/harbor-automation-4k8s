@@ -35,6 +35,7 @@ type AccessCred struct {
 	AccessSecret string
 }
 
+// FillIn put secret into AccessCred
 func (ac *AccessCred) FillIn(secret *corev1.Secret) error {
 	decodedAK, ok1 := secret.Data[accessKey]
 	decodedAS, ok2 := secret.Data[accessSecret]
@@ -47,11 +48,28 @@ func (ac *AccessCred) FillIn(secret *corev1.Secret) error {
 	return nil
 }
 
+// Validate validates wether the key and secret has correct format
+func (ac *AccessCred) Validate(secret *corev1.Secret) error {
+	if len(ac.AccessKey) == 0 || len(ac.AccessSecret) == 0 {
+		return errors.New("access key and secret can't be empty")
+	}
+	return nil
+}
+
 // HarborServer contains connection data
 type HarborServer struct {
 	ServerURL  string
 	AccessCred *AccessCred
 	InSecure   bool
+}
+
+// NewHarborServer returns harbor server with inputs
+func NewHarborServer(serverURL string, accessCred *AccessCred, insecure bool) *HarborServer {
+	return &HarborServer{
+		ServerURL:  serverURL,
+		AccessCred: accessCred,
+		InSecure:   insecure,
+	}
 }
 
 // HarborClient keeps Harbor client
@@ -75,10 +93,6 @@ func (h *HarborServer) Client() *HarborClient {
 		Schemes:  hc.DefaultSchemes,
 	}
 
-	if h.InSecure {
-		cfg.Schemes = []string{"http"}
-	}
-
 	c := hc.NewHTTPClientWithConfig(nil, cfg)
 	auth := httptransport.BasicAuth(h.AccessCred.AccessKey, h.AccessCred.AccessSecret)
 
@@ -88,17 +102,13 @@ func (h *HarborServer) Client() *HarborClient {
 	}
 }
 
-// Client created based on the server data
+// ClientV2 created based on the server data. Harbor V2 API
 func (h *HarborServer) ClientV2() *HarborClientV2 {
 	// New client
 	cfg := &hc2.TransportConfig{
 		Host:     h.ServerURL,
 		BasePath: hc2.DefaultBasePath,
 		Schemes:  hc2.DefaultSchemes,
-	}
-
-	if h.InSecure {
-		cfg.Schemes = []string{"http"}
 	}
 
 	c := hc2.NewHTTPClientWithConfig(nil, cfg)
