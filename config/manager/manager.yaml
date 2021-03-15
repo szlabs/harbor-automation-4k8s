@@ -23,7 +23,6 @@ spec:
     metadata:
       labels:
         control-plane: controller-manager
-        goharbor.io/automation: disabled
     spec:
       containers:
       - command:
@@ -31,7 +30,6 @@ spec:
         args:
         - --enable-leader-election
         image: controller:latest
-        imagePullPolicy: IfNotPresent
         name: manager
         resources:
           limits:

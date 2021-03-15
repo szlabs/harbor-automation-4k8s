@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/containers/image/v5/docker/reference"
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
+
+	"github.com/containers/image/v5/docker/reference"
+	"github.com/umisama/go-regexpcache"
 )
 
 const BareRegistry = "docker.io"
@@ -36,7 +38,11 @@ func rewriteContainer(imageReference, serverURL string, rules []goharborv1alpha1
 		return "", err
 	}
 	for _, rule := range rules {
-		if registry == rule.Registry {
+		regex, err := regexpcache.Compile(rule.RegistryRegex)
+		if err != nil {
+			return "", err
+		}
+		if regex.MatchString(registry) {
 			rewritten := fmt.Sprintf("%s/%s", serverURL, rule.HarborProject)
 			return replaceRegistryInImageRef(imageReference, rewritten)
 		}

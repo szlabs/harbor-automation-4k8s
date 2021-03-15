@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-logr/logr"
+	"github.com/umisama/go-regexpcache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -13,7 +14,7 @@ import (
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
 )
 
-// +kubebuilder:webhook:path=/validate-hsc,mutating=false,failurePolicy=fail,groups="goharbor.goharbor.io",resources=harborserverconfigurations,verbs=create;update,versions=v1alpha1,name=hsc.goharbor.io
+// +kubebuilder:webhook:path=/validate-hsc,mutating=false,failurePolicy=fail,groups="goharbor.goharbor.io",resources=harborserverconfigurations,verbs=create;update,sideEffects=None,admissionReviewVersions=v1beta1,versions=v1alpha1,name=hsc.goharbor.io
 
 type Validator struct {
 	Client  client.Client
@@ -30,6 +31,11 @@ func (h *Validator) Handle(ctx context.Context, req admission.Request) admission
 	err := h.decoder.Decode(req, hsc)
 	if err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
+	}
+	for _, rule := range hsc.Spec.Rules {
+		if _, err := regexpcache.Compile(rule.RegistryRegex); err != nil {
+			return admission.ValidationResponse(false, fmt.Sprintf("%s can not be validated, %q is not a valid regular expression: %s", hsc.Name, rule.RegistryRegex, err.Error()))
+		}
 	}
 	// Check for duplicate default configurations
 	if hsc.Spec.Default {

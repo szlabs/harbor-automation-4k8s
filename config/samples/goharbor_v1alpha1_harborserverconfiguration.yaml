@@ -17,7 +17,7 @@ spec:
   accessCredential:
     namespace: kube-system
     accessSecretRef: mysecret
-  version: 2.1.0
+  version: 2.2.0
   default: false
 ---
 apiVersion: goharbor.goharbor.io/v1alpha1
@@ -29,8 +29,8 @@ spec:
   accessCredential:
     namespace: kube-system
     accessSecretRef: mysecret
-  version: 2.1.0
+  version: 2.2.0
   default: true
   rules:
-    - registry: docker.io
-      project: dockerhub-proxy-cache
+    - registryRegex: ^docker\.io$
+      project: dockerhub-proxy

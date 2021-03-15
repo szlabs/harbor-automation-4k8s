@@ -20,8 +20,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/go-logr/logr"
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
+
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +41,7 @@ const (
 	imageRewriteDisabled = "disabled"
 )
 
-// +kubebuilder:webhook:path=/mutate-image-path,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create;update,versions=v1,name=mimg.kb.io
+// +kubebuilder:webhook:path=/mutate-image-path,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create;update,sideEffects=NoneOnDryRun,admissionReviewVersions=v1beta1,versions=v1,name=mimg.kb.io
 
 // ImagePathRewriter implements webhook logic to mutate the image path of deploying pods
 type ImagePathRewriter struct {
@@ -109,9 +110,12 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 			}
 			imageRules := []goharborv1alpha1.ImageRule{
 				{
-					Registry:      BareRegistry,
+					RegistryRegex: "*",
 					HarborProject: pro,
 				},
+			}
+			if len(hsc.Spec.Rules) > 0 {
+				imageRules = hsc.Spec.Rules
 			}
 			return ipr.rewriteContainers(req, hsc.Spec.ServerURL, imageRules, pod)
 		}
