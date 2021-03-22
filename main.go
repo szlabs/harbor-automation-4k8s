@@ -27,11 +27,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	_ "sigs.k8s.io/controller-tools/pkg/crd"
 
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
 	"github.com/szlabs/harbor-automation-4k8s/controllers"
 	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
 	v2 "github.com/szlabs/harbor-automation-4k8s/pkg/rest/v2"
+	"github.com/szlabs/harbor-automation-4k8s/webhooks/hsc"
 	"github.com/szlabs/harbor-automation-4k8s/webhooks/pod"
 	// +kubebuilder:scaffold:imports
 )
@@ -105,6 +107,11 @@ func main() {
 		Handler: &pod.ImagePathRewriter{
 			Client: mgr.GetClient(),
 			Log:    ctrl.Log.WithName("webhooks").WithName("MutatingImagePath"),
+		}})
+	mgr.GetWebhookServer().Register("/validate-hsc", &webhook.Admission{
+		Handler: &hsc.Validator{
+			Client: mgr.GetClient(),
+			Log:    ctrl.Log.WithName("webhooks").WithName("HarborServerConfigurationValidator"),
 		}})
 	// +kubebuilder:scaffold:builder
 

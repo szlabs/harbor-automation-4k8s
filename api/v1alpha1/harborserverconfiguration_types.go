@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"sigs.k8s.io/kustomize/kstatus/status"
 )
 
@@ -38,6 +39,11 @@ type HarborServerConfigurationSpec struct {
 	// +kubebuilder:validation:Optional
 	InSecure bool `json:"inSecure,omitempty"`
 
+	// Default indicates the harbor configuration manages namespaces that omit the goharbor.io/secret-issuer annotation.
+	// At most, one HarborServerConfiguration can be the default, multiple defaults will be rejected.
+	// +kubebuilder:validation:Required
+	Default bool `json:"default"`
+
 	// +kubebuilder:validation:Required
 	AccessCredential *AccessCredential `json:"accessCredential"`
 
@@ -45,6 +51,22 @@ type HarborServerConfigurationSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern="(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?"
 	Version string `json:"version"`
+
+	// Rules configures the container image rewrite rules for transparent proxy caching with Harbor.
+	// +kubebuilder:validation:Optional
+	Rules []ImageRule `json:"rules"`
+}
+
+// ImageRule defines a rule to rewrite container images to a harbor project for images that match the registry regular expression.
+type ImageRule struct {
+	// RegistryRegex is a regular expression that matches the registry an image is pulled from.
+	// For example, `^docker\.io$` will match the dockerhub registry.
+	// +kubebuilder:validation:Required
+	RegistryRegex string `json:"registryRegex"`
+
+	// HarborProject is the Harbor proxy cache project for registries that match the regex.
+	// +kubebuilder:validation:Required
+	HarborProject string `json:"project"`
 }
 
 // AccessCredential is a namespaced credential to keep the access key and secret for the harbor server configuration
