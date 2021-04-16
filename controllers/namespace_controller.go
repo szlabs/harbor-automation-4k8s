@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/szlabs/harbor-automation-4k8s/pkg/utils"
 
@@ -33,6 +34,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
+	v2 "github.com/szlabs/harbor-automation-4k8s/pkg/rest/v2"
 )
 
 const (
@@ -44,8 +47,10 @@ const (
 // NamespaceReconciler reconciles a Namespace object
 type NamespaceReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log      logr.Logger
+	Scheme   *runtime.Scheme
+	HarborV2 *v2.Client
+	Harbor   *legacy.Client
 }
 
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch;create;update;patch;delete
@@ -126,11 +131,48 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		}
 	}
 
+	// Validate the annotation and create PSB is needed
+	proj, projExist := ns.Annotations[annotationProject]
+	robot, robotExist := ns.Annotations[annotationRobot]
+
+	// Skip PSB creation if project and robot don't match
+	if projExist != robotExist {
+		// TODO: refine logging
+		log.Error(fmt.Errorf("project: %s, robot: %s", proj, robot), "Harbor annotation for project and robot doesn't match")
+		return ctrl.Result{}, nil
+	}
+
+	// Validate project and robot if both non-empty
+	if projExist {
+		err := r.validateProjectRobot(proj, robot)
+		if err != nil {
+			log.Error(err, "Harbor annotation for project and robot invalid", "project", proj, "robot", robot)
+			return ctrl.Result{}, nil
+		}
+	}
+
+	// Automatically generate project and robot account based on namespace name
+	if !projExist {
+		proj = utils.RandomName(ns.Name)
+		robotID, err := r.createProjectRobot(proj)
+		if err != nil {
+			log.Error(err, "Failed creating project and robot", "project", proj, "robot", robot)
+			return ctrl.Result{}, nil
+		}
+		robot = robotID
+	}
+
 	// PSB doesn't exist, create one
 	defaultBinding := r.getNewBindingCR(ns.Name, harborCfg, saName)
 	if err := controllerutil.SetControllerReference(ns, defaultBinding, r.Scheme); err != nil {
 		return ctrl.Result{}, fmt.Errorf("set ctrl reference error: %w", err)
 	}
+
+	// TODO: add project and robot in PSB spec instead of annotation
+	defaultBinding.Annotations = make(map[string]string)
+	defaultBinding.Annotations[annotationProject] = proj
+	defaultBinding.Annotations[annotationRobot] = robot
+
 	if err := r.Client.Create(ctx, defaultBinding, &client.CreateOptions{}); err != nil {
 		return ctrl.Result{}, fmt.Errorf("create binding CR error: %w", err)
 	}
@@ -157,4 +199,29 @@ func (r *NamespaceReconciler) getNewBindingCR(ns string, harborCfg string, sa st
 			ServiceAccount:     sa,
 		},
 	}
+}
+
+func (r *NamespaceReconciler) validateProjectRobot(proj, robot string) error {
+	robotID, err := strconv.ParseInt(robot, 10, 64)
+	if err == nil {
+		return err
+	}
+	projID, err := r.HarborV2.EnsureProject(proj)
+	if err != nil {
+		return err
+	}
+	_, err = r.Harbor.GetRobotAccount(projID, robotID)
+	return err
+}
+
+func (r *NamespaceReconciler) createProjectRobot(proj string) (string, error) {
+	projID, err := r.HarborV2.EnsureProject(proj)
+	if err != nil {
+		return "", err
+	}
+	robot, err := r.Harbor.CreateRobotAccount(projID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d", robot.ID), nil
 }
