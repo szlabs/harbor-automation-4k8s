@@ -28,6 +28,14 @@ type PullSecretBindingSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	// Robot points to the robot account used for secret binding
+	// +kubebuilder:validation:Required
+	Robot string `json:"robot"`
+
+	// Project points to the project associated with the secret binding
+	// +kubebuilder:validation:Required
+	Project string `json:"project"`
+
 	// Indicate which harbor server configuration is referred
 	HarborServerConfig string `json:"harborServerConfig"`
 
