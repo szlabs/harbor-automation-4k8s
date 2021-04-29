@@ -168,10 +168,8 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, fmt.Errorf("set ctrl reference error: %w", err)
 	}
 
-	// TODO: add project and robot in PSB spec instead of annotation
-	defaultBinding.Annotations = make(map[string]string)
-	defaultBinding.Annotations[annotationProject] = proj
-	defaultBinding.Annotations[annotationRobot] = robot
+	defaultBinding.Spec.Robot = robot
+	defaultBinding.Spec.Project = proj
 
 	if err := r.Client.Create(ctx, defaultBinding, &client.CreateOptions{}); err != nil {
 		return ctrl.Result{}, fmt.Errorf("create binding CR error: %w", err)
