@@ -24,9 +24,9 @@ The diagram below shows the overall design of this project:
 * A cluster scoped Kubernetes CR named `HarborServerConfiguration` is designed to keep the Harbor server access info by providing the access
 host and access key & secret (key and secret should be wrapped into a kubernetes secret) for future referring.
 * To enable the image pull secret injection in a Kubernetes namespace:
-  - add the annotation `goharbor.io/secret-issuer:[harborserverconfiguration_cr_name]` to the namespace. `harborserverconfiguration_cr_name` 
+  - add the annotation `goharbor.io/secret-issuer:[harborserverconfiguration_cr_name]` to the namespace. `harborserverconfiguration_cr_name`
   is the name of the CR `HarborServerConfiguration` that includes the Harbor server info.
-  - add the annotation `goharbor.io/service-account:[service_account_name]` to the namespace. `service_account_name` is the 
+  - add the annotation `goharbor.io/service-account:[service_account_name]` to the namespace. `service_account_name` is the
   name of the Kubernetes service account that you want to use to bind the image pulling secret later.
 * When the namespace is created, the operator will check the related annotations set above. If they're set, then:
   - ensures a corresponding harbor project exists (or creates one if none exists) at the Harbor referred by
@@ -102,12 +102,16 @@ kind: HarborServerConfiguration
 metadata:
   name: harborserverconfiguration-sample
 spec:
-  serverURL: 192.168.1.11
+  default: true ## whether it will be default global hsc
+  serverURL: 10.168.167.189
   accessCredential:
     namespace: kube-system
     accessSecretRef: mysecret
   version: 2.1.0
   inSecure: true
+  rules: ## rules to define to rewrite image path
+  - registryRegex: "^docker.io$"
+    project: myHarborProject
 ```
 
 Create it:

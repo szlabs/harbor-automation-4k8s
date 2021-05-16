@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -133,7 +132,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		}
 	}()
 
-	projID, robotID := parseIntID(bd.Spec.Project), parseIntID(bd.Spec.Robot)
+	projID, robotID := parseIntID(bd.Spec.ProjectID), parseIntID(bd.Spec.RobotID)
 
 	// Bind robot to service account
 	// TODO: may cause dirty robots at the harbor project side
@@ -329,7 +328,7 @@ func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespac
 			Annotations: map[string]string{
 				annotationSecOwner: defaultOwner,
 			},
-			OwnerReferences: []v1.OwnerReference{{APIVersion: psb.APIVersion, Kind: psb.Kind, Name: psb.Name, UID: psb.UID}},
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: psb.APIVersion, Kind: psb.Kind, Name: psb.Name, UID: psb.UID}},
 		},
 		Type: regSecType,
 		Data: map[string][]byte{

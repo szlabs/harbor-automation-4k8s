@@ -22,17 +22,15 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
+	harborClient "github.com/szlabs/harbor-automation-4k8s/pkg/controllers/harbor"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
 	corev1 "k8s.io/api/core/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/kustomize/kstatus/status"
-
-	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
-	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
-	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/model"
 )
 
 const (
@@ -73,11 +71,12 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	}
 
 	// Create harbor client
-	err := r.createHarborClient(ctx, hsc)
+	harborLegacy, err := harborClient.CreateHarborLegacyClient(ctx, r.Client, hsc)
 	if err != nil {
 		log.Error(err, "failed to create harbor client")
 		return ctrl.Result{}, nil
 	}
+	r.Harbor = harborLegacy
 
 	// Check if the configuration is being deleted
 	if !hsc.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -149,42 +148,6 @@ func (r *HarborServerConfigurationReconciler) checkServerHealth() (goharborv1alp
 	}
 
 	return overallStatus, nil
-}
-
-// Check if the server configuration is valid.
-// That is checking if the admin password secret object is valid.
-func (r *HarborServerConfigurationReconciler) createHarborClient(ctx context.Context, hsc *goharborv1alpha1.HarborServerConfiguration) error {
-	// contruct accessCreds from Secret
-	cred, err := r.createAccessCredsFromSecret(ctx, hsc)
-	if err != nil {
-		return err
-	}
-	// put server config into client
-	server := model.NewHarborServer(hsc.Spec.ServerURL, cred, hsc.Spec.InSecure)
-	r.Harbor.WithContext(ctx).WithServer(server)
-
-	return nil
-}
-
-func (r *HarborServerConfigurationReconciler) createAccessCredsFromSecret(ctx context.Context, hsc *goharborv1alpha1.HarborServerConfiguration) (*model.AccessCred, error) {
-	accessSecret := &corev1.Secret{}
-	secretNSedName := types.NamespacedName{
-		Namespace: hsc.Spec.AccessCredential.Namespace,
-		Name:      hsc.Spec.AccessCredential.AccessSecretRef,
-	}
-
-	if err := r.Client.Get(ctx, secretNSedName, accessSecret); err != nil {
-		// No matter what errors (including not found) occurred, the server configuration is invalid
-		return nil, fmt.Errorf("get access secret error: %w", err)
-	}
-
-	// convert secrets to AccessCred
-	cred := &model.AccessCred{}
-	if err := cred.FillIn(accessSecret); err != nil {
-		return nil, fmt.Errorf("fill in secret error: %w", err)
-	}
-
-	return cred, nil
 }
 
 func (r *HarborServerConfigurationReconciler) requeueWithError(err error) (ctrl.Result, error) {
