@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/szlabs/harbor-automation-4k8s/pkg/utils"
@@ -103,6 +104,14 @@ func (c *Client) EnsureProject(name string) (int64, error) {
 		return int64(p.ProjectID), nil
 	}
 
+	if err != nil {
+		if !strings.Contains(err.Error(), "no project with name") {
+			return 0, fmt.Errorf("error when getting project %s: %s", name, err)
+		}
+	}
+
+	fmt.Println("creating project since target project doesn't exist")
+
 	// Create one when the project does not exist
 	cparams := project.NewCreateProjectParamsWithContext(c.context).
 		WithTimeout(c.timeout).
@@ -130,7 +139,7 @@ func (c *Client) GetProject(name string) (*v2models.Project, error) {
 	if c.harborClient == nil {
 		return nil, errors.New("nil harbor client")
 	}
-
+	// Use listProject endpoint since getProject requires project id query key
 	params := project.NewListProjectsParamsWithContext(c.context).
 		WithTimeout(c.timeout).
 		WithHTTPClient(c.insecureClient).

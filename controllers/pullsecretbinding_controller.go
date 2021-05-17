@@ -132,57 +132,21 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		}
 	}()
 
-	// Check linked project info
-	pro, ok := bd.Annotations[annotationProject]
-	if !ok {
-		pro = utils.RandomName(bd.Namespace)
-	}
-
-	// Ensure project
-	proID, err := r.HarborV2.EnsureProject(pro)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("ensure project error: %w", err)
-	}
-
-	if !ok {
-		setAnnotation(bd, annotationProject, pro)
-		if err := r.update(ctx, bd); err != nil {
-			// TODO: If update failed, how should we handle the created project in Harbor side
-			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
-		}
-	}
+	projID, robotID := parseIntID(bd.Spec.ProjectID), parseIntID(bd.Spec.RobotID)
 
 	// Bind robot to service account
 	// TODO: may cause dirty robots at the harbor project side
 	// TODO: check secret binding by get secret and service account
-	_, ok = bd.Annotations[annotationRobotSecretRef]
+	_, ok := bd.Annotations[annotationRobotSecretRef]
 	if !ok {
-		// Clear the useless old one if it is existing
-		if idstr, ok := bd.Annotations[annotationRobot]; ok {
-			if rid, err := strconv.ParseInt(idstr, 10, 64); err == nil {
-				if err := r.Harbor.DeleteRobotAccount(proID, rid); err != nil {
-					// Just log
-					r.Log.Error(err, "delete useless old robot", "ID", rid)
-				} else {
-					r.Log.Error(err, "invalid robot ID", "ID", idstr)
-				}
-			}
-		}
-
 		// Need to create a new one as we only have one time to get the robot token
-		robot, err := r.Harbor.CreateRobotAccount(proID)
+		robot, err := r.Harbor.GetRobotAccount(projID, robotID)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("create robot account error: %w", err)
 		}
 
-		// Keep robot info at this moment in case some of the following steps are failed
-		setAnnotation(bd, annotationRobot, fmt.Sprintf("%d", robot.ID))
-		if err := r.update(ctx, bd); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
-		}
-
 		// Make registry secret
-		regsec, err := r.createRegSec(ctx, bd.Namespace, server.ServerURL, robot)
+		regsec, err := r.createRegSec(ctx, bd.Namespace, server.ServerURL, robot, bd)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("create registry secret error: %w", err)
 		}
@@ -203,8 +167,6 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		if err := controllerutil.SetControllerReference(bd, regsec, r.Scheme); err != nil {
 			r.Log.Error(err, "set controller reference", "owner", bd.ObjectMeta, "controlled", regsec.ObjectMeta)
 		}
-
-		setAnnotation(bd, annotationRobot, fmt.Sprintf("%d", robot.ID))
 		setAnnotation(bd, annotationRobotSecretRef, regsec.Name)
 		if err := r.update(ctx, bd); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
@@ -347,7 +309,7 @@ func (r *PullSecretBindingReconciler) getServiceAccount(ctx context.Context, ns,
 	return sc, nil
 }
 
-func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespace string, registry string, robot *model.Robot) (*corev1.Secret, error) {
+func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespace string, registry string, robot *model.Robot, psb *goharborv1alpha1.PullSecretBinding) (*corev1.Secret, error) {
 	auths := &secret.Object{
 		Auths: map[string]*secret.Auth{},
 	}
@@ -366,6 +328,7 @@ func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespac
 			Annotations: map[string]string{
 				annotationSecOwner: defaultOwner,
 			},
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: psb.APIVersion, Kind: psb.Kind, Name: psb.Name, UID: psb.UID}},
 		},
 		Type: regSecType,
 		Data: map[string][]byte{
@@ -400,4 +363,9 @@ func setAnnotation(obj *goharborv1alpha1.PullSecretBinding, key string, value st
 	}
 
 	obj.Annotations[key] = value
+}
+
+func parseIntID(id string) int64 {
+	intID, _ := strconv.ParseInt(id, 10, 64)
+	return intID
 }
