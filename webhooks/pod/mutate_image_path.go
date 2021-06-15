@@ -31,7 +31,7 @@ import (
 
 const (
 	// TODO: use same consts with namespace ctrl
-	annotationIssuer  = "goharbor.io/secret-issuer"
+	annotationIssuer  = "goharbor.io/harbor-server"
 	annotationAccount = "goharbor.io/service-account"
 	defaultSa         = "default"
 	annotationProject = "goharbor.io/project"

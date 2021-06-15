@@ -24,13 +24,13 @@ The diagram below shows the overall design of this project:
 * A cluster scoped Kubernetes CR named `HarborServerConfiguration` is designed to keep the Harbor server access info by providing the access
 host and access key & secret (key and secret should be wrapped into a kubernetes secret) for future referring.
 * To enable the image pull secret injection in a Kubernetes namespace:
-  - add the annotation `goharbor.io/secret-issuer:[harborserverconfiguration_cr_name]` to the namespace. `harborserverconfiguration_cr_name`
+  - add the annotation `goharbor.io/harbor-server:[harborserverconfiguration_cr_name]` to the namespace. `harborserverconfiguration_cr_name`
   is the name of the CR `HarborServerConfiguration` that includes the Harbor server info.
   - add the annotation `goharbor.io/service-account:[service_account_name]` to the namespace. `service_account_name` is the
   name of the Kubernetes service account that you want to use to bind the image pulling secret later.
 * When the namespace is created, the operator will check the related annotations set above. If they're set, then:
   - ensures a corresponding harbor project exists (or creates one if none exists) at the Harbor referred by
-  the `HarborServerConfiguration` referred in `goharbor.io/secret-issuer`.
+  the `HarborServerConfiguration` referred in `goharbor.io/harbor-server`.
   - ensures a robot account under the mapping project exists (or creates one if none exists).
   - a CR `PullSecretBinding` is created to keep the relationship between Kubernetes resources and Harbor resources.
   - the mapping project is recorded in annotation `annotation:goharbor.io/project` of the CR `PullSecretBinding`.
@@ -40,7 +40,7 @@ host and access key & secret (key and secret should be wrapped into a kubernetes
 * If the annotation `annotation:goharbor.io/image-rewrite=auto` is set for the namespace, the mutating webhook is enabled.
   - any pods deployed to the namespace with image that does not have registry host (e.g.: `nginx:1.14.3`) will be rewrite
   by adding harbor host and mapping project (e.g.: `goharbor.io/namespace1_xxx/nginx:1.14.3`) from the `HarborServerConfiguration`
-  referred in `goharbor.io/secret-issuer`.
+  referred in `goharbor.io/harbor-server`.
 * tbd
 
 ## Installation
@@ -136,7 +136,7 @@ kind: Namespace
 metadata:
   name: sz-namespace1
   annotations:
-    goharbor.io/secret-issuer: harborserverconfiguration-sample
+    goharbor.io/harbor-server: harborserverconfiguration-sample
     goharbor.io/service-account: default
 ```
 
@@ -215,7 +215,7 @@ kind: Namespace
 metadata:
   name: sz-namespace1
   annotations:
-    goharbor.io/secret-issuer: harborserverconfiguration-sample
+    goharbor.io/harbor-server: harborserverconfiguration-sample
     goharbor.io/service-account: default
     goharbor.io/image-rewrite: auto # enable mutating webhook to rewrite the image path
 ```

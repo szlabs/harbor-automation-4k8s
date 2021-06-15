@@ -40,7 +40,7 @@ import (
 )
 
 const (
-	annotationIssuer  = "goharbor.io/secret-issuer"
+	annotationIssuer  = "goharbor.io/harbor-server"
 	annotationAccount = "goharbor.io/service-account"
 	defaultSaName     = "default"
 )
