@@ -37,12 +37,11 @@ import (
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
 	"github.com/szlabs/harbor-automation-4k8s/pkg/rest/legacy"
 	v2 "github.com/szlabs/harbor-automation-4k8s/pkg/rest/v2"
+	v2models "github.com/szlabs/harbor-automation-4k8s/pkg/sdk/harbor_v2/models"
 )
 
 const (
-	annotationIssuer  = "goharbor.io/harbor-server"
-	annotationAccount = "goharbor.io/service-account"
-	defaultSaName     = "default"
+	defaultSaName = "default"
 )
 
 // NamespaceReconciler reconciles a Namespace object
@@ -79,6 +78,12 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
+	imageRewrite, irExist := ns.Annotations[utils.AnnotationRewriter]
+	if !irExist {
+		log.Info("skip namespace since there is no image rewrite rule for this namespace", "name", ns.Name)
+		return ctrl.Result{}, nil
+	}
+
 	// Get the binding list if existing
 	bindings := &goharborv1alpha1.PullSecretBindingList{}
 	if err := r.Client.List(ctx, bindings, &client.ListOptions{Namespace: req.Name}); err != nil {
@@ -92,7 +97,7 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	if harborCfg == nil {
-		log.Info("no default hsc for this namespace")
+		log.Info("no default hsc for this namespace, skip PSB creation")
 		r.removeStalePSB(ctx, bindings)
 		return ctrl.Result{}, nil
 	}
@@ -101,7 +106,7 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// Confirm the service account name
 	// Use default SA if not set inside annotation
 	saName := defaultSaName
-	if setSa, ok := ns.Annotations[annotationAccount]; ok {
+	if setSa, ok := ns.Annotations[utils.AnnotationAccount]; ok {
 		// Check if custom service account exist
 		sa := &corev1.ServiceAccount{}
 		saNamespacedName := types.NamespacedName{
@@ -126,55 +131,39 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		}
 	}
 
+	// TODO: based on annotationRewriter, create project/robot if needed
+	// write back the annotation back to namespace if created.
+
 	// Validate the annotation and create PSB is needed
-	proj, projExist := ns.Annotations[annotationProject]
-	robot, robotExist := ns.Annotations[annotationRobot]
+	proj, projExist := ns.Annotations[utils.AnnotationProject]
+	robot, robotExist := ns.Annotations[utils.AnnotationRobot]
 
-	// Skip PSB creation if project and robot don't match
-	if projExist != robotExist {
-		// TODO: refine logging
-		log.Error(fmt.Errorf("project: %s, robot: %s", proj, robot), "Harbor annotation for project and robot have to be set at the same time")
-		return ctrl.Result{}, nil
+	if err := r.setHarborClient(ctx, log, harborCfg); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	// Create harbor client
-	harborV2, harborLegacy, err := harborClient.CreateHarborClients(ctx, r.Client, harborCfg)
-	if err != nil {
-		log.Error(err, "failed to create harbor client")
-		return ctrl.Result{}, nil
-	}
-	r.HarborV2 = harborV2
-	r.Harbor = harborLegacy
-
-	// Validate project and robot if both non-empty
-	if projExist {
-		log.Info("validate project and robot account")
-		err := r.validateProjectRobot(proj, robot)
-		if err != nil {
-			log.Error(err, "Harbor annotation for project and robot invalid", "project", proj, "robot", robot)
-			return ctrl.Result{}, fmt.Errorf("project and robot are invalid: %w", err)
-		}
-	}
-
-	// Automatically generate project and robot account based on namespace name
-	var projID, robotID string
-	if !projExist {
-		// TODO: should be more structure name since many clusters might share the same Harbor instance
-		proj = utils.RandomName(ns.Name)
-		projID, robotID, err = r.createProjectAndRobot(proj)
-		if err != nil {
-			log.Error(err, "Failed creating project and robot", "project", proj, "robot", robot)
-			return ctrl.Result{}, nil
-		}
+	var projName, projID, robotID string
+	if projName, projID, robotID, err = r.validateHarborProjectAndRobot(ctx, log, projExist, robotExist, irExist, proj, robot, imageRewrite, ns.Name); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// PSB doesn't exist, create one
 	log.Info("creating pull secret binding")
 	psb, err := r.createPullSecretBinding(ctx, ns, harborCfg.Name, saName, robotID, projID)
 	if err != nil {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 	log.Info("created pull secret binding", "name", psb.Name)
+
+	// update namespace with correct annotation
+	if !projExist || !robotExist {
+		log.Info("update namespace annotations", "projectName", projName, "robotID", robotID)
+		ns.Annotations[utils.AnnotationProject] = projName
+		ns.Annotations[utils.AnnotationRobot] = robotID
+		if err := r.Client.Update(ctx, ns, &client.UpdateOptions{}); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -198,7 +187,16 @@ func (r *NamespaceReconciler) getNewBindingCR(ns string, harborCfg string, sa st
 	}
 }
 
-func (r *NamespaceReconciler) validateProjectRobot(projName, robot string) error {
+func (r *NamespaceReconciler) validateProject(projectName string) (string, error) {
+	var proj *v2models.Project
+	var err error
+	if proj, err = r.HarborV2.GetProject(projectName); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d", proj.ProjectID), nil
+}
+
+func (r *NamespaceReconciler) validateRobot(projName, robot string) error {
 	robotID, err := strconv.ParseInt(robot, 10, 64)
 	if err != nil {
 		return err
@@ -210,6 +208,19 @@ func (r *NamespaceReconciler) validateProjectRobot(projName, robot string) error
 	}
 	_, err = r.Harbor.GetRobotAccount(int64(proj.ProjectID), robotID)
 	return err
+}
+
+func (r *NamespaceReconciler) createRobot(proj string) (string, error) {
+	projID, err := strconv.ParseInt(proj, 10, 64)
+	if err != nil {
+		return "", err
+	}
+	robot, err := r.Harbor.CreateRobotAccount(projID)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%d", robot.ID), nil
 }
 
 func (r *NamespaceReconciler) createProjectAndRobot(proj string) (string, string, error) {
@@ -228,7 +239,7 @@ func (r *NamespaceReconciler) createProjectAndRobot(proj string) (string, string
 
 func (r *NamespaceReconciler) findDefaultHarborCfg(ctx context.Context, log logr.Logger, ns *corev1.Namespace) (*goharborv1alpha1.HarborServerConfiguration, error) {
 	// check annotation first
-	harborCfg, yes := ns.Annotations[annotationIssuer]
+	harborCfg, yes := ns.Annotations[utils.AnnotationHarborServer]
 	if yes && harborCfg != "" {
 		hsc := &goharborv1alpha1.HarborServerConfiguration{}
 		err := r.Client.Get(ctx, types.NamespacedName{Name: harborCfg}, hsc)
@@ -289,4 +300,67 @@ func (r *NamespaceReconciler) createPullSecretBinding(ctx context.Context, ns *c
 	}
 
 	return defaultBinding, nil
+}
+
+func (r *NamespaceReconciler) setHarborClient(ctx context.Context, log logr.Logger, harborCfg *goharborv1alpha1.HarborServerConfiguration) error {
+	// Create harbor client
+	harborV2, harborLegacy, err := harborClient.CreateHarborClients(ctx, r.Client, harborCfg)
+	if err != nil {
+		log.Error(err, "failed to create harbor client")
+		return err
+	}
+	r.HarborV2 = harborV2
+	r.Harbor = harborLegacy
+	return nil
+}
+
+func (r *NamespaceReconciler) validateHarborProjectAndRobot(ctx context.Context, log logr.Logger, projExist, robotExist, irExist bool, proj, robot, imageRewrite, ns string) (string, string, string, error) {
+	var err error
+	var projID, robotID string
+
+	// Validate project and robot if both non-empty
+	if projExist {
+		log.Info("validate project and robot account")
+		projID, err = r.validateProject(proj)
+		if err != nil {
+			log.Error(err, "Harbor annotation for project is invalid", "project", proj)
+			return "", "", "", fmt.Errorf("project are invalid: %w", err)
+		}
+	} else {
+		// Automatically generate project and robot account based on namespace name
+		// ensure if it's auto mode or it's empty
+		if imageRewrite == utils.ImageRewriteAuto {
+			// TODO: should be more structure name since many clusters might share the same Harbor instance
+			proj = utils.RandomName(ns)
+			projID, robotID, err = r.createProjectAndRobot(proj)
+			if err != nil {
+				log.Error(err, "Failed creating project and robot", "project", proj, "robot", robot)
+				return "", "", "", err
+			}
+			return proj, projID, robotID, nil
+		} else {
+
+			// global mode, throw error
+			return "", "", "", fmt.Errorf("project is not set")
+		}
+	}
+
+	if robotExist {
+		log.Info("validate project and robot account")
+		err := r.validateRobot(proj, robot)
+		if err != nil {
+			log.Error(err, "Harbor annotation for robot is invalid", "robot", robot)
+			return "", "", "", fmt.Errorf("robot is invalid: %w", err)
+		}
+		robotID = robot
+	} else {
+		// ensure robot
+		robotID, err = r.createRobot(proj)
+		if err != nil {
+			log.Error(err, "Failed creating  robot", "robot", robot)
+			return "", "", "", err
+		}
+	}
+
+	return proj, projID, robotID, nil
 }

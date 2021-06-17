@@ -37,7 +37,10 @@ host and access key & secret (key and secret should be wrapped into a kubernetes
   - the linked robot account is recorded in annotation `annotation:goharbor.io/robot` of the CR `PullSecretBinding`.
   - make sure the linked robot account is wrapped as a Kubernetes secret and bind with the service account that is
   specified in the annotation `annotation:goharbor.io/service-account` of the namespace.
-* If the annotation `annotation:goharbor.io/image-rewrite=auto` is set for the namespace, the mutating webhook is enabled.
+* Now `annotation:goharbor.io/image-rewrite` has three kinds of value.
+    * `auto`, the mutating webhook is enabled. Controller will create project and robot specified inside namespace if it doesn't exist. If there is no default global HSC or no harbor-server specified, no PSB will be created for current namespace
+    * `global` the mutating webhook is enabled. Controller will throw error if project specified inside namespace doesn't exist. It will create robot account if it doesn't exist. The controller will use the harbor-server in assign HSC first. If it does not exist, use the harbor-server in global default HSC
+    * not set, the mutating webhook is disabled.
   - any pods deployed to the namespace with image that does not have registry host (e.g.: `nginx:1.14.3`) will be rewrite
   by adding harbor host and mapping project (e.g.: `goharbor.io/namespace1_xxx/nginx:1.14.3`) from the `HarborServerConfiguration`
   referred in `goharbor.io/harbor-server`.
