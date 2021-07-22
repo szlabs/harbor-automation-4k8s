@@ -65,7 +65,7 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ns := &corev1.Namespace{}
 	if err := r.Client.Get(ctx, req.NamespacedName, ns); err != nil {
 		if apierr.IsNotFound(err) {
-			// The resource may have be deleted after reconcile request coming in
+			// The resource may have been deleted after reconcile request coming in
 			return ctrl.Result{}, nil
 		}
 
@@ -78,19 +78,25 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
-	imageRewrite, irExist := ns.Annotations[utils.AnnotationRewriter]
-	if !irExist {
-		log.Info("skip namespace since there is no image rewrite rule for this namespace", "name", ns.Name)
-		return ctrl.Result{}, nil
-	}
-
 	// Get the binding list if existing
 	bindings := &goharborv1alpha1.PullSecretBindingList{}
 	if err := r.Client.List(ctx, bindings, &client.ListOptions{Namespace: req.Name}); err != nil {
 		return ctrl.Result{}, fmt.Errorf("list bindings error: %w", err)
 	}
 
-	// If auto-wire is set
+	imageRewrite, irExist := ns.Annotations[utils.AnnotationRewriter]
+	if !irExist || imageRewrite == "" {
+		log.Info("skip namespace since there is no image rewrite rule for namespace", "name", ns.Name)
+		r.removeStalePSB(ctx, log, bindings)
+		return ctrl.Result{}, nil
+	}
+	if imageRewrite == utils.ImageRewriteRules {
+		log.Info("skip namespace since image rewrite rule is 'rules' for namespace", "name", ns.Name)
+		r.removeStalePSB(ctx, log, bindings)
+		return ctrl.Result{}, nil
+	}
+
+	// If auto is set for image rewrite rule
 	harborCfg, err := r.findDefaultHarborCfg(ctx, log, ns)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("error finding harborCfg: %w", err)
@@ -98,8 +104,8 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	if harborCfg == nil {
 		log.Info("no default hsc for this namespace, skip PSB creation")
-		r.removeStalePSB(ctx, bindings)
-		return ctrl.Result{}, nil
+		r.removeStalePSB(ctx, log, bindings)
+		return ctrl.Result{}, fmt.Errorf("no HarborServerConfiguration for namespace %s, but image rewrite rule for this namespace is: '%s'", ns.Name, imageRewrite)
 	}
 
 	// Pull secret issuer is set and then check if the required default binding exists
@@ -107,19 +113,19 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// Use default SA if not set inside annotation
 	saName := defaultSaName
 	if setSa, ok := ns.Annotations[utils.AnnotationAccount]; ok {
-		// Check if custom service account exist
-		sa := &corev1.ServiceAccount{}
-		saNamespacedName := types.NamespacedName{
-			Namespace: ns.Name,
-			Name:      setSa,
-		}
-		if err := r.Client.Get(ctx, saNamespacedName, sa); err != nil {
-			if apierr.IsNotFound(err) {
-				return ctrl.Result{}, fmt.Errorf("service account %s not found in namespace %s: %w", setSa, ns.Name, err)
-			}
-			return ctrl.Result{}, fmt.Errorf("get service account %s in namespace %s error: %w", setSa, ns.Name, err)
-		}
 		saName = setSa
+	}
+	// Check if custom service account exist
+	sa := &corev1.ServiceAccount{}
+	saNamespacedName := types.NamespacedName{
+		Namespace: ns.Name,
+		Name:      saName,
+	}
+	if err := r.Client.Get(ctx, saNamespacedName, sa); err != nil {
+		if apierr.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("service account %s not found in namespace %s: %w", saName, ns.Name, err)
+		}
+		return ctrl.Result{}, fmt.Errorf("get service account %s in namespace %s error: %w", saName, ns.Name, err)
 	}
 
 	// Find PSB
@@ -130,9 +136,6 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			return ctrl.Result{}, nil
 		}
 	}
-
-	// TODO: based on annotationRewriter, create project/robot if needed
-	// write back the annotation back to namespace if created.
 
 	// Validate the annotation and create PSB is needed
 	proj, projExist := ns.Annotations[utils.AnnotationProject]
@@ -155,7 +158,7 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 	log.Info("created pull secret binding", "name", psb.Name)
 
-	// update namespace with correct annotation
+	// update namespace with updated annotation
 	if !projExist || !robotExist {
 		log.Info("update namespace annotations", "projectName", projName, "robotID", robotID)
 		ns.Annotations[utils.AnnotationProject] = projName
@@ -273,8 +276,9 @@ func (r *NamespaceReconciler) findDefaultHarborCfg(ctx context.Context, log logr
 	return nil, nil
 }
 
-func (r *NamespaceReconciler) removeStalePSB(ctx context.Context, bindings *goharborv1alpha1.PullSecretBindingList) error {
+func (r *NamespaceReconciler) removeStalePSB(ctx context.Context, log logr.Logger, bindings *goharborv1alpha1.PullSecretBindingList) error {
 	if len(bindings.Items) > 0 {
+		log.Info("removig stale psb in namespace")
 		for _, bd := range bindings.Items {
 			// Remove all the existing bindings as issuer is removed
 			if err := r.Client.Delete(ctx, &bd, &client.DeleteOptions{}); err != nil {
@@ -319,17 +323,18 @@ func (r *NamespaceReconciler) validateHarborProjectAndRobot(ctx context.Context,
 	var projID, robotID string
 
 	// Validate project and robot if both non-empty
-	if projExist {
-		log.Info("validate project and robot account")
-		projID, err = r.validateProject(proj)
-		if err != nil {
-			log.Error(err, "Harbor annotation for project is invalid", "project", proj)
-			return "", "", "", fmt.Errorf("project are invalid: %w", err)
-		}
-	} else {
-		// Automatically generate project and robot account based on namespace name
-		// ensure if it's auto mode or it's empty
-		if imageRewrite == utils.ImageRewriteAuto {
+	if imageRewrite == utils.ImageRewriteAuto {
+		if projExist {
+			log.Info("validate project and robot account")
+			projID, err = r.validateProject(proj)
+			if err != nil {
+				log.Error(err, "Harbor annotation for project is invalid", "project", proj)
+				return "", "", "", fmt.Errorf("project are invalid: %w", err)
+			}
+		} else {
+			// Automatically generate project and robot account based on namespace name
+			// ensure if it's auto mode or it's empty
+
 			// TODO: should be more structure name since many clusters might share the same Harbor instance
 			proj = utils.RandomName(ns)
 			projID, robotID, err = r.createProjectAndRobot(proj)
@@ -338,27 +343,23 @@ func (r *NamespaceReconciler) validateHarborProjectAndRobot(ctx context.Context,
 				return "", "", "", err
 			}
 			return proj, projID, robotID, nil
+		}
+
+		if robotExist {
+			log.Info("validate project and robot account")
+			err := r.validateRobot(proj, robot)
+			if err != nil {
+				log.Error(err, "Harbor annotation for robot is invalid", "robot", robot)
+				return "", "", "", fmt.Errorf("robot is invalid: %w", err)
+			}
+			robotID = robot
 		} else {
-
-			// global mode, throw error
-			return "", "", "", fmt.Errorf("project is not set")
-		}
-	}
-
-	if robotExist {
-		log.Info("validate project and robot account")
-		err := r.validateRobot(proj, robot)
-		if err != nil {
-			log.Error(err, "Harbor annotation for robot is invalid", "robot", robot)
-			return "", "", "", fmt.Errorf("robot is invalid: %w", err)
-		}
-		robotID = robot
-	} else {
-		// ensure robot
-		robotID, err = r.createRobot(proj)
-		if err != nil {
-			log.Error(err, "Failed creating  robot", "robot", robot)
-			return "", "", "", err
+			// ensure robot
+			robotID, err = r.createRobot(proj)
+			if err != nil {
+				log.Error(err, "Failed creating robot", "robot", robot)
+				return "", "", "", err
+			}
 		}
 	}
 

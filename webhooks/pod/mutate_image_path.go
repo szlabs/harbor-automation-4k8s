@@ -23,6 +23,7 @@ import (
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
 
 	"github.com/go-logr/logr"
+	"github.com/szlabs/harbor-automation-4k8s/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,14 +32,7 @@ import (
 
 const (
 	// TODO: use same consts with namespace ctrl
-	annotationIssuer  = "goharbor.io/harbor-server"
-	annotationAccount = "goharbor.io/service-account"
-	defaultSa         = "default"
-	annotationProject = "goharbor.io/project"
-
-	annotationRewriter = "goharbor.io/image-rewrite"
-	imageRewriteAuto   = "auto"
-	imageRewriteGlobal = "global"
+	defaultSa = "default"
 )
 
 // +kubebuilder:webhook:path=/mutate-image-path,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create;update,sideEffects=NoneOnDryRun,admissionReviewVersions=v1beta1,versions=v1,name=mimg.kb.io
@@ -67,18 +61,18 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 
 	ipr.Log.V(4).Info("receive pod request", "pod", pod)
 
-	flag, flagPresent := podNS.Annotations[annotationRewriter]
+	flag, flagPresent := podNS.Annotations[utils.AnnotationRewriter]
 	// if image path rewrite flag is not set or empty, skip
 	if flag == "" || !flagPresent {
 		return admission.Allowed("image rewriting disabled")
 	}
 
 	// If pod image path rewrite flag is set
-	if flag == imageRewriteAuto || flag == imageRewriteGlobal {
+	if flag == utils.ImageRewriteAuto || flag == utils.ImageRewriteRules {
 		// fetch harbor-server from assigned hsc or from global hsc
 		var hsc *goharborv1alpha1.HarborServerConfiguration
 		var err error
-		if issuer, yes := podNS.Annotations[annotationIssuer]; yes {
+		if issuer, yes := podNS.Annotations[utils.AnnotationHarborServer]; yes {
 			hsc, err = ipr.getHarborServerConfig(ctx, pod.Namespace, issuer)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
@@ -92,37 +86,48 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 
 		// there is no assigned or default hsc, skip
 		if hsc == nil {
-			return admission.Allowed("image rewriting disabled")
+			return admission.Errored(http.StatusInternalServerError,
+				fmt.Errorf(`there is no hsc assigned or global default hsc for this namespace.
+				but the image rewrite rule for this namespace is %s`, flag))
 		}
 
-		sa := defaultSa
-		if setSa, exists := podNS.Annotations[annotationAccount]; exists {
-			sa = setSa
-		}
+		var imageRules []goharborv1alpha1.ImageRule
+		if flag == utils.ImageRewriteAuto {
+			sa := defaultSa
+			if setSa, exists := podNS.Annotations[utils.AnnotationAccount]; exists {
+				sa = setSa
+			}
 
-		ipr.Log.Info("get issuer and bound sa", "issuer", hsc.Name, "sa", sa)
-		psb, err := ipr.getPullSecretBinding(ctx, pod.Namespace, hsc.Name, sa)
-		if err != nil {
-			return admission.Errored(http.StatusInternalServerError, err)
-		}
+			ipr.Log.Info("get issuer and bound sa", "issuer", hsc.Name, "sa", sa)
+			psb, err := ipr.getPullSecretBinding(ctx, pod.Namespace, hsc.Name, sa)
+			if err != nil {
+				return admission.Errored(http.StatusInternalServerError, err)
+			}
 
-		ipr.Log.Info("get pullsecretbinding CR", "psb", psb)
+			ipr.Log.Info("get pullsecretbinding CR", "psb", psb)
 
-		// project is stored inside namespace annotation
-		pro, bound := podNS.Annotations[annotationProject]
-		if !bound {
-			// it should be created in namespace_controller already
-			return admission.Errored(http.StatusInternalServerError, fmt.Errorf("%s of binding %s is empty", annotationProject, psb.Name))
-		}
-		imageRules := []goharborv1alpha1.ImageRule{
-			{
-				RegistryRegex: "*",
-				HarborProject: pro,
-			},
-		}
-		if len(hsc.Spec.Rules) > 0 {
+			// project is stored inside namespace annotation
+			pro, bound := podNS.Annotations[utils.AnnotationProject]
+			if !bound {
+				// it should be created in namespace_controller already
+				return admission.Errored(http.StatusInternalServerError, fmt.Errorf("%s of binding %s is empty", utils.AnnotationProject, psb.Name))
+			}
+			imageRules = []goharborv1alpha1.ImageRule{
+				{
+					RegistryRegex: "*",
+					HarborProject: pro,
+				},
+			}
+			ipr.Log.V(4).Info("use harbor project %s in rule", pro)
+		} else { // flag == utils.ImageRewriteRules
+			ipr.Log.V(4).Info("use global hsc rule %v", hsc.Spec.Rules)
 			imageRules = hsc.Spec.Rules
+			if len(imageRules) == 0 {
+				// if there is not rule in hsc, don't change and allow
+				return admission.Allowed("no change since there is no rule in global hsc")
+			}
 		}
+
 		return ipr.rewriteContainers(req, hsc.Spec.ServerURL, imageRules, pod)
 	}
 
