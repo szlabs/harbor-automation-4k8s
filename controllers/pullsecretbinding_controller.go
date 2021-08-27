@@ -40,14 +40,10 @@ import (
 )
 
 const (
-	annotationProject        = "goharbor.io/project"
-	annotationRobot          = "goharbor.io/robot"
-	annotationRobotSecretRef = "goharbor.io/robot-secret"
-	annotationSecOwner       = "goharbor.io/owner"
-	defaultOwner             = "harbor-automation-4k8s"
-	regSecType               = "kubernetes.io/dockerconfigjson"
-	datakey                  = ".dockerconfigjson"
-	finalizerID              = "psb.finalizers.resource.goharbor.io"
+	defaultOwner = "harbor-automation-4k8s"
+	regSecType   = "kubernetes.io/dockerconfigjson"
+	datakey      = ".dockerconfigjson"
+	finalizerID  = "psb.finalizers.resource.goharbor.io"
 )
 
 // PullSecretBindingReconciler reconciles a PullSecretBinding object
@@ -137,7 +133,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 	// Bind robot to service account
 	// TODO: may cause dirty robots at the harbor project side
 	// TODO: check secret binding by get secret and service account
-	_, ok := bd.Annotations[annotationRobotSecretRef]
+	_, ok := bd.Annotations[utils.AnnotationRobotSecretRef]
 	if !ok {
 		// Need to create a new one as we only have one time to get the robot token
 		robot, err := r.Harbor.GetRobotAccount(projID, robotID)
@@ -167,7 +163,7 @@ func (r *PullSecretBindingReconciler) Reconcile(req ctrl.Request) (res ctrl.Resu
 		if err := controllerutil.SetControllerReference(bd, regsec, r.Scheme); err != nil {
 			r.Log.Error(err, "set controller reference", "owner", bd.ObjectMeta, "controlled", regsec.ObjectMeta)
 		}
-		setAnnotation(bd, annotationRobotSecretRef, regsec.Name)
+		setAnnotation(bd, utils.AnnotationRobotSecretRef, regsec.Name)
 		if err := r.update(ctx, bd); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update error: %w", err)
 		}
@@ -326,7 +322,7 @@ func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespac
 			Name:      utils.RandomName("regsecret"),
 			Namespace: namespace,
 			Annotations: map[string]string{
-				annotationSecOwner: defaultOwner,
+				utils.AnnotationSecOwner: defaultOwner,
 			},
 			OwnerReferences: []metav1.OwnerReference{{APIVersion: psb.APIVersion, Kind: psb.Kind, Name: psb.Name, UID: psb.UID}},
 		},
@@ -340,7 +336,7 @@ func (r *PullSecretBindingReconciler) createRegSec(ctx context.Context, namespac
 }
 
 func (r *PullSecretBindingReconciler) deleteExternalResources(bd *goharborv1alpha1.PullSecretBinding) error {
-	if pro, ok := bd.Annotations[annotationProject]; ok {
+	if pro, ok := bd.Annotations[utils.AnnotationProject]; ok {
 		if err := r.HarborV2.DeleteProject(pro); err != nil {
 			// TODO: handle delete error
 			// Delete non-empty project will cause error?
