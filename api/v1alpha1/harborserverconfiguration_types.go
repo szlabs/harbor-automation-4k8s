@@ -40,7 +40,7 @@ type HarborServerConfigurationSpec struct {
 	InSecure bool `json:"inSecure,omitempty"`
 
 	// Default indicates the harbor configuration manages namespaces.
-	// Value in goharbor.io/harbor-server annotation will be considered with high priority.
+	// Value in goharbor.io/harbor annotation will be considered with high priority.
 	// At most, one HarborServerConfiguration can be the default, multiple defaults will be rejected.
 	// +kubebuilder:validation:Required
 	Default bool `json:"default"`

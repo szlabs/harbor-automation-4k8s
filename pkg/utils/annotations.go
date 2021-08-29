@@ -2,7 +2,7 @@ package utils
 
 const (
 	// AnnotationHarborServer is the annnotation for harbor server
-	AnnotationHarborServer = "goharbor.io/harbor-server"
+	AnnotationHarborServer = "goharbor.io/harbor"
 	// AnnotationAccount is the annnotation for service account
 	AnnotationAccount = "goharbor.io/service-account"
 	// AnnotationProject is the annnotation for harbor project name

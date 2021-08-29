@@ -69,7 +69,7 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 
 	// If pod image path rewrite flag is set
 	if flag == utils.ImageRewriteAuto || flag == utils.ImageRewriteRules {
-		// fetch harbor-server from assigned hsc or from global hsc
+		// fetch harbor from assigned hsc or from global hsc
 		var hsc *goharborv1alpha1.HarborServerConfiguration
 		var err error
 		if issuer, yes := podNS.Annotations[utils.AnnotationHarborServer]; yes {
