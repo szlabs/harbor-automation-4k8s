@@ -55,19 +55,7 @@ type HarborServerConfigurationSpec struct {
 
 	// Rules configures the container image rewrite rules for transparent proxy caching with Harbor.
 	// +kubebuilder:validation:Optional
-	Rules []ImageRule `json:"rules"`
-}
-
-// ImageRule defines a rule to rewrite container images to a harbor project for images that match the registry regular expression.
-type ImageRule struct {
-	// RegistryRegex is a regular expression that matches the registry an image is pulled from.
-	// For example, `^docker\.io$` will match the dockerhub registry.
-	// +kubebuilder:validation:Required
-	RegistryRegex string `json:"registryRegex"`
-
-	// HarborProject is the Harbor proxy cache project for registries that match the regex.
-	// +kubebuilder:validation:Required
-	HarborProject string `json:"project"`
+	Rules []string `json:"rules"`
 }
 
 // AccessCredential is a namespaced credential to keep the access key and secret for the harbor server configuration

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
-
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/umisama/go-regexpcache"
 )
@@ -32,18 +30,18 @@ func replaceRegistryInImageRef(imageReference, replacementRegistry string) (imag
 }
 
 // rewriteContainer replaces any registries matching the image rules with the given serverURL
-func rewriteContainer(imageReference, serverURL string, rules []goharborv1alpha1.ImageRule) (imageRef string, err error) {
+func rewriteContainer(imageReference string, rules []rule) (imageRef string, err error) {
 	registry, err := registryFromImageRef(imageReference)
 	if err != nil {
 		return "", err
 	}
-	for _, rule := range rules {
-		regex, err := regexpcache.Compile(rule.RegistryRegex)
+	for _, r := range rules {
+		regex, err := regexpcache.Compile(r.registryRegex)
 		if err != nil {
 			return "", err
 		}
 		if regex.MatchString(registry) {
-			rewritten := fmt.Sprintf("%s/%s", serverURL, rule.HarborProject)
+			rewritten := fmt.Sprintf("%s/%s", r.serverURL, r.project)
 			return replaceRegistryInImageRef(imageReference, rewritten)
 		}
 	}

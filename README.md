@@ -113,8 +113,7 @@ spec:
   version: 2.1.0
   inSecure: true
   rules: ## rules to define to rewrite image path
-  - registryRegex: "^docker.io$"
-    project: myHarborProject
+  - "^docker.io$:myHarborProject"    ## <repo-regex>:<harbor-project>
 ```
 
 Create it:
