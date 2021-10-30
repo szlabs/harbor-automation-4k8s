@@ -13,4 +13,17 @@ const (
 	AnnotationRobotSecretRef = "goharbor.io/robot-secret"
 	// AnnotationSecOwner is the annotation for owner
 	AnnotationSecOwner = "goharbor.io/owner"
+	// AnnotationImageRewriteRuleConfigMapRef is the annotation for reference to configmap that stores rules
+	AnnotationImageRewriteRuleConfigMapRef = "goharbor.io/rewriting-rules"
+
+	// ConfigMapKeyHarborServer is the key in configmap that for HSC
+	ConfigMapKeyHarborServer = "hsc"
+	// ConfigMapKeyRules is the key in configmap that for rules
+	ConfigMapKeyRules = "rules"
+	// ConfigMapKeyRewriting is the key in configmap that for whether turn on image rewrite
+	ConfigMapKeyRewriting = "rewriting"
+	// ConfigMapValueRewritingOff is the key in configmap that for rewrite to turn off
+	ConfigMapValueRewritingOff = "off"
+	// ConfigMapValueRewritingOn is the key in configmap that for rewrite to turn on
+	ConfigMapValueRewritingOn = "on"
 )

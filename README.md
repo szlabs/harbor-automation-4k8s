@@ -113,7 +113,10 @@ spec:
   version: 2.1.0
   inSecure: true
   rules: ## rules to define to rewrite image path
-  - "^docker.io$:myHarborProject"    ## <repo-regex>:<harbor-project>
+  - "docker.io,myharbor"    ## <repo-regex>,<harbor-project>
+  namespaceSelector:
+    matchLabels:
+      usethisHSC: true
 ```
 
 Create it:
@@ -140,6 +143,7 @@ metadata:
   annotations:
     goharbor.io/harbor: harborserverconfiguration-sample
     goharbor.io/service-account: default
+    goharbor.io/project: "*"
 ```
 
 Create it:
@@ -202,14 +206,14 @@ The related auto-generated data is recorded in the related annotations:
 
 ```yaml
 annotations:
-    goharbor.io/project: sz-namespace1-axtnd8
-    goharbor.io/robot: "31"
-    goharbor.io/robot-secret: regsecret-sab3pq
+  goharbor.io/project: sz-namespace1-axtnd8
+  goharbor.io/robot: "31"
+  goharbor.io/robot-secret: regsecret-sab3pq
 ```
 
 ### Image path rewrite
 
-Add extra annotation to your namespace when enabling image rewrite:
+To enable image rewrite, set the rules section in hsc, or set annotation to refer to a configMap that contains rules and hsc
 
 ```yaml
 apiVersion: v1
@@ -219,7 +223,43 @@ metadata:
   annotations:
     goharbor.io/harbor: harborserverconfiguration-sample
     goharbor.io/service-account: default
-    goharbor.io/image-rewrite: auto # enable mutating webhook to rewrite the image path
+    goharbor.io/rewriting-rules: sz-namespace1
+```
+
+Corresponding ConfigMap
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sz-namespace1
+  namespace: sz-namespace1
+data:
+  hsc: harbor2
+  rewriting: "on"
+  rules: | # configMap doesn't support storing nested string
+    docker.io,highestproject
+    gcr.io,a
+
+```
+
+Corresponding HSC
+
+```yaml
+apiVersion: goharbor.goharbor.io/v1alpha1
+kind: HarborServerConfiguration
+metadata:
+  name: harborserverconfiguration-sample
+spec:
+  serverURL: 10.168.167.12
+  accessCredential:
+    namespace: kube-system
+    accessSecretRef: mysecret
+  version: 2.1.0
+  inSecure: true
+  rules: ## rules to define to rewrite image path
+  - "docker.io,testharbor"    ## <repo-regex>,<harbor-project>
+
 ```
 
 As mentioned before, the mutating webhook will rewrite all the images of the deploying pods which has no registry host

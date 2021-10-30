@@ -35,15 +35,25 @@ func rewriteContainer(imageReference string, rules []rule) (imageRef string, err
 	if err != nil {
 		return "", err
 	}
+	var starRule *rule
 	for _, r := range rules {
-		regex, err := regexpcache.Compile(r.registryRegex)
-		if err != nil {
-			return "", err
+		if r.registryRegex != "*" {
+			regex, err := regexpcache.Compile(r.registryRegex)
+			if err != nil {
+				return "", err
+			}
+			if regex.MatchString(registry) {
+				rewritten := fmt.Sprintf("%s/%s", r.serverURL, r.project)
+				return replaceRegistryInImageRef(imageReference, rewritten)
+			}
+		} else {
+			starRule = &r
 		}
-		if regex.MatchString(registry) {
-			rewritten := fmt.Sprintf("%s/%s", r.serverURL, r.project)
-			return replaceRegistryInImageRef(imageReference, rewritten)
-		}
+	}
+	// * has the lowerest priority in the rules, match this in the end.
+	if starRule != nil {
+		rewritten := fmt.Sprintf("%s/%s", starRule.serverURL, starRule.project)
+		return replaceRegistryInImageRef(imageReference, rewritten)
 	}
 	return "", nil
 }

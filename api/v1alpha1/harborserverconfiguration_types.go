@@ -43,7 +43,7 @@ type HarborServerConfigurationSpec struct {
 	// Value in goharbor.io/harbor annotation will be considered with high priority.
 	// At most, one HarborServerConfiguration can be the default, multiple defaults will be rejected.
 	// +kubebuilder:validation:Required
-	Default bool `json:"default"`
+	Default bool `json:"default,omitempty"`
 
 	// +kubebuilder:validation:Required
 	AccessCredential *AccessCredential `json:"accessCredential"`
@@ -55,7 +55,17 @@ type HarborServerConfigurationSpec struct {
 
 	// Rules configures the container image rewrite rules for transparent proxy caching with Harbor.
 	// +kubebuilder:validation:Optional
-	Rules []string `json:"rules"`
+	Rules []string `json:"rules,omitempty"`
+
+	// NamespaceSelector decides whether to apply the HSC on a namespace based
+	// on whether the namespace matches the selector.
+	// See
+	// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+	// for more examples of label selectors.
+	//
+	// Default to the empty LabelSelector, which matches everything.
+	// +optional
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 }
 
 // AccessCredential is a namespaced credential to keep the access key and secret for the harbor server configuration

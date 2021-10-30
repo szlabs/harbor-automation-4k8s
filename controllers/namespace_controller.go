@@ -91,7 +91,7 @@ func (r *NamespaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	if harborCfg == nil {
-		log.Info("no default hsc for this namespace, skip PSB creation")
+		log.Info("no default hsc for namespace: ", req.Namespace, ", skip PSB creation")
 		r.removeStalePSB(ctx, log, bindings)
 		return ctrl.Result{}, nil
 	}
@@ -243,7 +243,7 @@ func (r *NamespaceReconciler) findDefaultHarborCfg(ctx context.Context, log logr
 		}
 		return hsc, nil
 	}
-	log.Info("no default hsc found in annotation")
+	log.Info("no default hsc found in annotation for namespace " + ns.Name)
 
 	// then find global default hsc
 	hscs := &goharborv1alpha1.HarborServerConfigurationList{}
@@ -331,7 +331,7 @@ func (r *NamespaceReconciler) validateHarborProjectAndRobot(ctx context.Context,
 			return "", "", "", fmt.Errorf("project are invalid: %w", err)
 		}
 		if !robotExist {
-			return "", "", "", fmt.Errorf("robotID is not set: %w", err)
+			return "", "", "", fmt.Errorf("robotID is not set")
 		}
 
 		err := r.validateRobot(projID, robotID)
