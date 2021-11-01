@@ -40,10 +40,10 @@ type HarborServerConfigurationSpec struct {
 	InSecure bool `json:"inSecure,omitempty"`
 
 	// Default indicates the harbor configuration manages namespaces.
-	// Value in goharbor.io/harbor-server annotation will be considered with high priority.
+	// Value in goharbor.io/harbor annotation will be considered with high priority.
 	// At most, one HarborServerConfiguration can be the default, multiple defaults will be rejected.
 	// +kubebuilder:validation:Required
-	Default bool `json:"default"`
+	Default bool `json:"default,omitempty"`
 
 	// +kubebuilder:validation:Required
 	AccessCredential *AccessCredential `json:"accessCredential"`
@@ -55,19 +55,17 @@ type HarborServerConfigurationSpec struct {
 
 	// Rules configures the container image rewrite rules for transparent proxy caching with Harbor.
 	// +kubebuilder:validation:Optional
-	Rules []ImageRule `json:"rules"`
-}
+	Rules []string `json:"rules,omitempty"`
 
-// ImageRule defines a rule to rewrite container images to a harbor project for images that match the registry regular expression.
-type ImageRule struct {
-	// RegistryRegex is a regular expression that matches the registry an image is pulled from.
-	// For example, `^docker\.io$` will match the dockerhub registry.
-	// +kubebuilder:validation:Required
-	RegistryRegex string `json:"registryRegex"`
-
-	// HarborProject is the Harbor proxy cache project for registries that match the regex.
-	// +kubebuilder:validation:Required
-	HarborProject string `json:"project"`
+	// NamespaceSelector decides whether to apply the HSC on a namespace based
+	// on whether the namespace matches the selector.
+	// See
+	// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+	// for more examples of label selectors.
+	//
+	// Default to the empty LabelSelector, which matches everything.
+	// +optional
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 }
 
 // AccessCredential is a namespaced credential to keep the access key and secret for the harbor server configuration

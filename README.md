@@ -24,13 +24,13 @@ The diagram below shows the overall design of this project:
 * A cluster scoped Kubernetes CR named `HarborServerConfiguration` is designed to keep the Harbor server access info by providing the access
 host and access key & secret (key and secret should be wrapped into a kubernetes secret) for future referring.
 * To enable the image pull secret injection in a Kubernetes namespace:
-  - add the annotation `goharbor.io/harbor-server:[harborserverconfiguration_cr_name]` to the namespace. `harborserverconfiguration_cr_name`
+  - add the annotation `goharbor.io/harbor:[harborserverconfiguration_cr_name]` to the namespace. `harborserverconfiguration_cr_name`
   is the name of the CR `HarborServerConfiguration` that includes the Harbor server info.
   - add the annotation `goharbor.io/service-account:[service_account_name]` to the namespace. `service_account_name` is the
   name of the Kubernetes service account that you want to use to bind the image pulling secret later.
 * When the namespace is created, the operator will check the related annotations set above. If they're set, then:
   - ensures a corresponding harbor project exists (or creates one if none exists) at the Harbor referred by
-  the `HarborServerConfiguration` referred in `goharbor.io/harbor-server`.
+  the `HarborServerConfiguration` referred in `goharbor.io/harbor`.
   - ensures a robot account under the mapping project exists (or creates one if none exists).
   - a CR `PullSecretBinding` is created to keep the relationship between Kubernetes resources and Harbor resources.
   - the mapping project is recorded in annotation `annotation:goharbor.io/project` of the CR `PullSecretBinding`.
@@ -38,12 +38,12 @@ host and access key & secret (key and secret should be wrapped into a kubernetes
   - make sure the linked robot account is wrapped as a Kubernetes secret and bind with the service account that is
   specified in the annotation `annotation:goharbor.io/service-account` of the namespace.
 * Now `annotation:goharbor.io/image-rewrite` has three kinds of value.
-    * `auto`, the mutating webhook is enabled. Controller will create project and robot specified inside namespace if it doesn't exist. If there is no default global HSC or no harbor-server specified, no PSB will be created for current namespace
-    * `global` the mutating webhook is enabled. Controller will throw error if project specified inside namespace doesn't exist. It will create robot account if it doesn't exist. The controller will use the harbor-server in assign HSC first. If it does not exist, use the harbor-server in global default HSC
+    * `auto`, the mutating webhook is enabled. Controller will create project and robot specified inside namespace if it doesn't exist. If there is no default global HSC or no harbor specified, no PSB will be created for current namespace
+    * `global` the mutating webhook is enabled. Controller will throw error if project specified inside namespace doesn't exist. It will create robot account if it doesn't exist. The controller will use the harbor in assign HSC first. If it does not exist, use the harbor in global default HSC
     * not set, the mutating webhook is disabled.
   - any pods deployed to the namespace with image that does not have registry host (e.g.: `nginx:1.14.3`) will be rewrite
   by adding harbor host and mapping project (e.g.: `goharbor.io/namespace1_xxx/nginx:1.14.3`) from the `HarborServerConfiguration`
-  referred in `goharbor.io/harbor-server`.
+  referred in `goharbor.io/harbor`.
 * tbd
 
 ## Installation
@@ -113,8 +113,10 @@ spec:
   version: 2.1.0
   inSecure: true
   rules: ## rules to define to rewrite image path
-  - registryRegex: "^docker.io$"
-    project: myHarborProject
+  - "docker.io,myharbor"    ## <repo-regex>,<harbor-project>
+  namespaceSelector:
+    matchLabels:
+      usethisHSC: true
 ```
 
 Create it:
@@ -139,8 +141,9 @@ kind: Namespace
 metadata:
   name: sz-namespace1
   annotations:
-    goharbor.io/harbor-server: harborserverconfiguration-sample
+    goharbor.io/harbor: harborserverconfiguration-sample
     goharbor.io/service-account: default
+    goharbor.io/project: "*"
 ```
 
 Create it:
@@ -203,14 +206,14 @@ The related auto-generated data is recorded in the related annotations:
 
 ```yaml
 annotations:
-    goharbor.io/project: sz-namespace1-axtnd8
-    goharbor.io/robot: "31"
-    goharbor.io/robot-secret: regsecret-sab3pq
+  goharbor.io/project: sz-namespace1-axtnd8
+  goharbor.io/robot: "31"
+  goharbor.io/robot-secret: regsecret-sab3pq
 ```
 
 ### Image path rewrite
 
-Add extra annotation to your namespace when enabling image rewrite:
+To enable image rewrite, set the rules section in hsc, or set annotation to refer to a configMap that contains rules and hsc
 
 ```yaml
 apiVersion: v1
@@ -218,9 +221,45 @@ kind: Namespace
 metadata:
   name: sz-namespace1
   annotations:
-    goharbor.io/harbor-server: harborserverconfiguration-sample
+    goharbor.io/harbor: harborserverconfiguration-sample
     goharbor.io/service-account: default
-    goharbor.io/image-rewrite: auto # enable mutating webhook to rewrite the image path
+    goharbor.io/rewriting-rules: sz-namespace1
+```
+
+Corresponding ConfigMap
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sz-namespace1
+  namespace: sz-namespace1
+data:
+  hsc: harbor2
+  rewriting: "on"
+  rules: | # configMap doesn't support storing nested string
+    docker.io,highestproject
+    gcr.io,a
+
+```
+
+Corresponding HSC
+
+```yaml
+apiVersion: goharbor.goharbor.io/v1alpha1
+kind: HarborServerConfiguration
+metadata:
+  name: harborserverconfiguration-sample
+spec:
+  serverURL: 10.168.167.12
+  accessCredential:
+    namespace: kube-system
+    accessSecretRef: mysecret
+  version: 2.1.0
+  inSecure: true
+  rules: ## rules to define to rewrite image path
+  - "docker.io,testharbor"    ## <repo-regex>,<harbor-project>
+
 ```
 
 As mentioned before, the mutating webhook will rewrite all the images of the deploying pods which has no registry host

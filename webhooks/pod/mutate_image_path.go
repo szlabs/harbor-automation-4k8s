@@ -19,20 +19,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	goharborv1alpha1 "github.com/szlabs/harbor-automation-4k8s/api/v1alpha1"
 
 	"github.com/go-logr/logr"
 	"github.com/szlabs/harbor-automation-4k8s/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
+	apierr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-)
-
-const (
-	// TODO: use same consts with namespace ctrl
-	defaultSa = "default"
 )
 
 // +kubebuilder:webhook:path=/mutate-image-path,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create;update,sideEffects=NoneOnDryRun,admissionReviewVersions=v1beta1,versions=v1,name=mimg.kb.io
@@ -59,84 +56,135 @@ func (ipr *ImagePathRewriter) Handle(ctx context.Context, req admission.Request)
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("get pod namespace object error: %w", err))
 	}
 
-	ipr.Log.V(4).Info("receive pod request", "pod", pod)
+	ipr.Log.Info("receive pod request", "pod", pod.Name)
 
-	flag, flagPresent := podNS.Annotations[utils.AnnotationRewriter]
-	// if image path rewrite flag is not set or empty, skip
-	if flag == "" || !flagPresent {
-		return admission.Allowed("image rewriting disabled")
-	}
+	// whether to rewrite image path is dependent on rules
+	// the rules could be in assigned hsc or default hsc
+	// assigned hsc has higher priority
+	ipr.Log.Info("try find rules")
+	var (
+		allRules []rule
+	)
+	if cmName, ok := podNS.Annotations[utils.AnnotationImageRewriteRuleConfigMapRef]; ok {
+		cm, err := ipr.getConfigMap(ctx, cmName, podNS.Name)
+		if err != nil {
+			if apierr.IsNotFound(err) {
+				// The resource may have been deleted after reconcile request coming in
+				return admission.Errored(http.StatusBadRequest, fmt.Errorf("the ConfigMap %s/%s is not found: %w", podNS.Name, cmName, err))
+			}
+			return admission.Errored(http.StatusInternalServerError, fmt.Errorf("failed to get ConfigMap %s/%s:,%w", podNS.Name, cmName, err))
+		}
 
-	// If pod image path rewrite flag is set
-	if flag == utils.ImageRewriteAuto || flag == utils.ImageRewriteRules {
-		// fetch harbor-server from assigned hsc or from global hsc
-		var hsc *goharborv1alpha1.HarborServerConfiguration
-		var err error
-		if issuer, yes := podNS.Annotations[utils.AnnotationHarborServer]; yes {
-			hsc, err = ipr.getHarborServerConfig(ctx, pod.Namespace, issuer)
+		// skip if rewriting is off
+		if enable, ok := cm.Data[utils.ConfigMapKeyRewriting]; ok {
+			if enable == utils.ConfigMapValueRewritingOff {
+				return admission.Allowed("no change")
+			} else if enable != utils.ConfigMapValueRewritingOn {
+				return admission.Errored(http.StatusBadRequest, fmt.Errorf("the rewriting value in configmap %s/%s '%s' is unacceptable", podNS.Name, cmName, enable))
+			}
+		}
+
+		if hscKey, ok := cm.Data[utils.ConfigMapKeyHarborServer]; ok {
+			hsc, err := ipr.getHarborServerConfig(ctx, podNS.Name, hscKey)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
+
+			// check selector, error out if assigned HSC doesn't select current namespace
+			if hsc.Spec.NamespaceSelector != nil {
+				if match := checkNamespaceSelector(podNS.Labels, hsc.Spec.NamespaceSelector.MatchLabels); !match {
+					return admission.Errored(http.StatusBadRequest, fmt.Errorf("the selector specified in HSC doesn't match the current namespace"))
+				}
+			}
+
+			// merge rules of configMap to rules of hsc, overwrite if there is conflicts
+			allRules = mergeRules(stringToRules(hsc.Spec.Rules, hsc.Spec.ServerURL),
+				stringToRules(strings.Split(strings.TrimSpace(cm.Data[utils.ConfigMapKeyRules]), "\n"), hsc.Spec.ServerURL))
 		} else {
-			hsc, err = ipr.lookupDefaultHarborServerConfig(ctx)
-			if err != nil {
-				return admission.Errored(http.StatusInternalServerError, fmt.Errorf("get default hsc object error: %w", err))
+			// if there is rule in configMap but no hsc, error out
+			if _, ok := cm.Data[utils.ConfigMapKeyRules]; ok && strings.TrimSpace(cm.Data[utils.ConfigMapKeyRules]) != "" {
+				return admission.Errored(http.StatusBadRequest, fmt.Errorf("rules are defined in configMap but there is no hsc associated with it"))
 			}
 		}
-
-		// there is no assigned or default hsc, skip
-		if hsc == nil {
-			return admission.Errored(http.StatusInternalServerError,
-				fmt.Errorf(`there is no hsc assigned or global default hsc for this namespace.
-				but the image rewrite rule for this namespace is %s`, flag))
-		}
-
-		var imageRules []goharborv1alpha1.ImageRule
-		if flag == utils.ImageRewriteAuto {
-			sa := defaultSa
-			if setSa, exists := podNS.Annotations[utils.AnnotationAccount]; exists {
-				sa = setSa
-			}
-
-			ipr.Log.Info("get issuer and bound sa", "issuer", hsc.Name, "sa", sa)
-			psb, err := ipr.getPullSecretBinding(ctx, pod.Namespace, hsc.Name, sa)
-			if err != nil {
-				return admission.Errored(http.StatusInternalServerError, err)
-			}
-
-			ipr.Log.Info("get pullsecretbinding CR", "psb", psb)
-
-			// project is stored inside namespace annotation
-			pro, bound := podNS.Annotations[utils.AnnotationProject]
-			if !bound {
-				// it should be created in namespace_controller already
-				return admission.Errored(http.StatusInternalServerError, fmt.Errorf("%s of binding %s is empty", utils.AnnotationProject, psb.Name))
-			}
-			imageRules = []goharborv1alpha1.ImageRule{
-				{
-					RegistryRegex: "*",
-					HarborProject: pro,
-				},
-			}
-			ipr.Log.V(4).Info("use harbor project %s in rule", pro)
-		} else { // flag == utils.ImageRewriteRules
-			ipr.Log.V(4).Info("use global hsc rule %v", hsc.Spec.Rules)
-			imageRules = hsc.Spec.Rules
-			if len(imageRules) == 0 {
-				// if there is not rule in hsc, don't change and allow
-				return admission.Allowed("no change since there is no rule in global hsc")
-			}
-		}
-
-		return ipr.rewriteContainers(req, hsc.Spec.ServerURL, imageRules, pod)
 	}
 
-	return admission.Allowed("no change")
+	defaultHSC, err := ipr.lookupDefaultHarborServerConfig(ctx)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("get default hsc object error: %w", err))
+	}
+	// check selector, if there is match, add the default rules to it. it has lowerest priority
+	if match := checkNamespaceSelector(podNS.Labels, defaultHSC.Spec.NamespaceSelector.MatchLabels); match {
+		allRules = mergeRules(stringToRules(defaultHSC.Spec.Rules, defaultHSC.Spec.ServerURL), allRules)
+	} else {
+		// it's ok to not match the default hsc
+		ipr.Log.Info("default hsc ", defaultHSC.Namespace, "/", defaultHSC.Name, " doesn't match current namespace")
+	}
+
+	// there is no rules that will be applied to the current namespace, skip
+	if len(allRules) == 0 {
+		return admission.Allowed("no change")
+	}
+
+	ipr.Log.Info("try rewrite the image path")
+
+	return ipr.rewriteContainers(req, allRules, pod)
 }
 
-func (ipr *ImagePathRewriter) rewriteContainers(req admission.Request, serverURL string, rules []goharborv1alpha1.ImageRule, pod *corev1.Pod) admission.Response {
+func checkNamespaceSelector(nsLabels, hscLabelSelector map[string]string) bool {
+	if nsLabels != nil && hscLabelSelector != nil {
+		for k, v := range nsLabels {
+			if _, ok := hscLabelSelector[k]; ok && v == hscLabelSelector[k] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type rule struct {
+	registryRegex string
+	project       string
+	serverURL     string
+}
+
+// assume rules are concatentated by ','
+func stringToRules(raw []string, server string) []rule {
+	var res []rule
+	for _, r := range raw {
+		registryRegex := r[:strings.LastIndex(r, ",")]
+		project := r[strings.LastIndex(r, ",")+1:]
+		res = append(res, rule{
+			registryRegex: registryRegex,
+			project:       project,
+			serverURL:     server,
+		})
+	}
+	return res
+}
+
+// append l after h, so l will be checked first.
+// there could be cases that regex in h is `gcr.io`, while in l is `gcr.io*`
+func mergeRules(l, h []rule) []rule {
+	return append(h, l...)
+}
+
+func (ipr *ImagePathRewriter) getConfigMap(ctx context.Context, name, namespace string) (*corev1.ConfigMap, error) {
+	cm := &corev1.ConfigMap{}
+	cmNamespacedName := types.NamespacedName{
+		Namespace: namespace,
+		Name:      name,
+	}
+	// TODO: replace with no cache client to avoid potential OOM issue
+	if err := ipr.Client.Get(ctx, cmNamespacedName, cm); err != nil {
+		return nil, err
+	}
+
+	return cm, nil
+}
+
+func (ipr *ImagePathRewriter) rewriteContainers(req admission.Request, rules []rule, pod *corev1.Pod) admission.Response {
 	for i, c := range pod.Spec.Containers {
-		rewrittenImage, err := rewriteContainer(c.Image, serverURL, rules)
+		rewrittenImage, err := rewriteContainer(c.Image, rules)
 		if err != nil {
 			ipr.Log.Error(err, "invalid container image format", "image", c.Image)
 			continue
@@ -150,7 +198,7 @@ func (ipr *ImagePathRewriter) rewriteContainers(req admission.Request, serverURL
 	}
 
 	for i, c := range pod.Spec.InitContainers {
-		rewrittenImage, err := rewriteContainer(c.Image, serverURL, rules)
+		rewrittenImage, err := rewriteContainer(c.Image, rules)
 		if err != nil {
 			ipr.Log.Error(err, "invalid container image format", "image", c.Image)
 			continue
@@ -208,8 +256,7 @@ func (ipr *ImagePathRewriter) getPodNamespace(ctx context.Context, ns string) (*
 func (ipr *ImagePathRewriter) getHarborServerConfig(ctx context.Context, ns string, issuer string) (*goharborv1alpha1.HarborServerConfiguration, error) {
 	hsc := &goharborv1alpha1.HarborServerConfiguration{}
 	nsName := types.NamespacedName{
-		Name:      issuer,
-		Namespace: ns,
+		Name: issuer,
 	}
 
 	if err := ipr.Client.Get(ctx, nsName, hsc); err != nil {
@@ -217,19 +264,4 @@ func (ipr *ImagePathRewriter) getHarborServerConfig(ctx context.Context, ns stri
 	}
 
 	return hsc, nil
-}
-
-func (ipr *ImagePathRewriter) getPullSecretBinding(ctx context.Context, ns, issuer, sa string) (*goharborv1alpha1.PullSecretBinding, error) {
-	bindings := &goharborv1alpha1.PullSecretBindingList{}
-	if err := ipr.Client.List(ctx, bindings, client.InNamespace(ns)); err != nil {
-		return nil, fmt.Errorf("get bindings error: %w", err)
-	}
-
-	for _, bd := range bindings.Items {
-		if bd.Spec.HarborServerConfig == issuer && bd.Spec.ServiceAccount == sa {
-			return bd.DeepCopy(), nil
-		}
-	}
-
-	return nil, fmt.Errorf("no binding with issuer=%s and sa=%s found", issuer, sa)
 }

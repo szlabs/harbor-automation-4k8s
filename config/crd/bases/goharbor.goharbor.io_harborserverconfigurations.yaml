@@ -64,26 +64,45 @@ spec:
                 - namespace
                 type: object
               default:
-                description: Default indicates the harbor configuration manages namespaces. Value in goharbor.io/harbor-server annotation will be considered with high priority. At most, one HarborServerConfiguration can be the default, multiple defaults will be rejected.
+                description: Default indicates the harbor configuration manages namespaces. Value in goharbor.io/harbor annotation will be considered with high priority. At most, one HarborServerConfiguration can be the default, multiple defaults will be rejected.
                 type: boolean
               inSecure:
                 description: Indicate if the Harbor server is an insecure registry
                 type: boolean
+              namespaceSelector:
+                description: "NamespaceSelector decides whether to apply the HSC on a namespace based on whether the namespace matches the selector. See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/ for more examples of label selectors. \n Default to the empty LabelSelector, which matches everything."
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements. The requirements are ANDed.
+                    items:
+                      description: A label selector requirement is a selector that contains values, a key, and an operator that relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies to.
+                          type: string
+                        operator:
+                          description: operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
               rules:
                 description: Rules configures the container image rewrite rules for transparent proxy caching with Harbor.
                 items:
-                  description: ImageRule defines a rule to rewrite container images to a harbor project for images that match the registry regular expression.
-                  properties:
-                    project:
-                      description: HarborProject is the Harbor proxy cache project for registries that match the regex.
-                      type: string
-                    registryRegex:
-                      description: RegistryRegex is a regular expression that matches the registry an image is pulled from. For example, `^docker\.io$` will match the dockerhub registry.
-                      type: string
-                  required:
-                  - project
-                  - registryRegex
-                  type: object
+                  type: string
                 type: array
               serverURL:
                 pattern: (?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)+([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])
@@ -94,7 +113,6 @@ spec:
                 type: string
             required:
             - accessCredential
-            - default
             - serverURL
             - version
             type: object

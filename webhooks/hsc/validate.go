@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/umisama/go-regexpcache"
@@ -33,8 +34,9 @@ func (h *Validator) Handle(ctx context.Context, req admission.Request) admission
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 	for _, rule := range hsc.Spec.Rules {
-		if _, err := regexpcache.Compile(rule.RegistryRegex); err != nil {
-			return admission.ValidationResponse(false, fmt.Sprintf("%s can not be validated, %q is not a valid regular expression: %s", hsc.Name, rule.RegistryRegex, err.Error()))
+		registryRegex := rule[:strings.LastIndex(rule, ",")+1]
+		if _, err := regexpcache.Compile(registryRegex); err != nil {
+			return admission.ValidationResponse(false, fmt.Sprintf("%s can not be validated, %q is not a valid regular expression: %s", hsc.Name, registryRegex, err.Error()))
 		}
 	}
 	// Check for duplicate default configurations

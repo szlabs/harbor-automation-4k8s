@@ -51,6 +51,7 @@ type HarborServerConfigurationReconciler struct {
 // +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=harborserverconfigurations,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=goharbor.goharbor.io,resources=harborserverconfigurations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // Reconcile the HarborServerConfiguration
 func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
@@ -91,6 +92,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 	hsc.Status = st
 	if err := r.Client.Status().Update(ctx, hsc); err != nil {
 		// requeue if there is error
+		log.Info("failed to update status, requeue")
 		return r.requeueWithError(err)
 	}
 
@@ -98,6 +100,7 @@ func (r *HarborServerConfigurationReconciler) Reconcile(req ctrl.Request) (ctrl.
 		return ctrl.Result{}, cerr
 	}
 
+	log.Info("Finished HarborServerConfiguration Reconciler")
 	// The health should be rechecked after a reasonable cycle
 	return ctrl.Result{
 		RequeueAfter: defaultCycle,
